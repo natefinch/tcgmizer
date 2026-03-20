@@ -1,0 +1,20 @@
+{
+  "name": "tcgmizer",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest || node test/test-ilp.js"
+  },
+  "keywords": ["tcgplayer", "optimizer", "cart", "mtg"],
+  "author": "",
+  "license": "ISC",
+  "description": "Mathematically optimal TCGPlayer cart optimizer using ILP",
+  "dependencies": {
+    "highs": "^1.8.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.4"
+  }
+}

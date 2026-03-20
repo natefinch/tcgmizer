@@ -1,0 +1,175 @@
+/**
+ * Content script entry point.
+ * Runs on TCGPlayer cart pages. Injects UI and coordinates with background service worker.
+ *
+ * Flow:
+ *  1. User clicks "Optimize Cart" → reads cart → sends to SW for listing fetch
+ *  2. SW fetches listings → sends LISTINGS_READY with available options
+ *  3. Content shows config UI (language, condition, max vendors)
+ *  4. User clicks "Run Optimizer" → sends SOLVE_WITH_CONFIG to SW
+ *  5. SW filters, builds ILP, solves → sends OPTIMIZATION_RESULT
+ *  6. User can go back to config and re-solve without re-fetching
+ */
+
+import { MSG, STAGE } from '../shared/constants.js';
+import { readCart } from './cart-reader.js';
+import { applyOptimizedCart, saveCartState } from './cart-modifier.js';
+import { injectUI, onStartClick, showPanel, showProgress, showConfig, showResults, showMultiResults, showError } from './results-ui.js';
+
+// Initialize UI (hidden until toggled via popup)
+injectUI();
+
+// Handle "Optimize Cart" button click
+onStartClick(() => {
+  startFetchPhase();
+});
+
+function startFetchPhase() {
+  showProgress('Reading cart...', null, null);
+
+  // Read cart items from the page
+  let cartData;
+  try {
+    cartData = readCart();
+  } catch (err) {
+    showError(`Error reading cart: ${err.message}`);
+    console.error('[TCGmizer] Cart read error:', err);
+    return;
+  }
+
+  if (!cartData.cartItems || cartData.cartItems.length === 0) {
+    const main = document.querySelector('main');
+    const articles = main ? main.querySelectorAll('article').length : 0;
+    const productLinks = document.querySelectorAll('a[href*="/product/"]').length;
+    const listItems = document.querySelectorAll('li').length;
+    showError(
+      `Could not read cart items. ` +
+      `Debug: main=${!!main}, articles=${articles}, productLinks=${productLinks}, li=${listItems}. ` +
+      `Make sure you have items in your cart.`
+    );
+    return;
+  }
+
+  // Save current cart for undo
+  saveCartState(cartData.cartItems);
+
+  console.log(`[TCGmizer] Read ${cartData.cartItems.length} items from cart, total: $${cartData.currentCartTotal}`);
+
+  // Send to background for listing fetch
+  chrome.runtime.sendMessage({
+    type: MSG.START_OPTIMIZATION,
+    cartData,
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      showError(`Failed to start: ${chrome.runtime.lastError.message}`);
+      return;
+    }
+    if (response?.error) {
+      showError(response.error);
+    }
+  });
+}
+
+function handleSolveWithConfig(config) {
+  showProgress('Optimizing...', null, null);
+
+  chrome.runtime.sendMessage({
+    type: MSG.SOLVE_WITH_CONFIG,
+    config,
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      showError(`Failed to start solver: ${chrome.runtime.lastError.message}`);
+      return;
+    }
+    if (response?.error) {
+      showError(response.error);
+    }
+  });
+}
+
+// Listen for messages from the background service worker and popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  switch (message.type) {
+    case MSG.TOGGLE_PANEL: {
+      const panel = document.getElementById('tcgmizer-panel');
+      if (panel) {
+        if (panel.style.display === 'none' || panel.style.display === '') {
+          panel.style.display = 'flex';
+          // Auto-start fetching when panel is shown
+          startFetchPhase();
+        } else {
+          panel.style.display = 'none';
+        }
+      }
+      sendResponse({ ok: true });
+      break;
+    }
+
+    case MSG.OPTIMIZATION_PROGRESS:
+      showProgress(
+        message.message || `${message.stage}...`,
+        message.current,
+        message.total
+      );
+      break;
+
+    case MSG.LISTINGS_READY:
+      showConfig(message.options, handleSolveWithConfig);
+      break;
+
+    case MSG.OPTIMIZATION_RESULT:
+      showResults(message.result, handleApply);
+      break;
+
+    case MSG.OPTIMIZATION_MULTI_RESULT:
+      showMultiResults(message.results, handleApply);
+      break;
+
+    case MSG.OPTIMIZATION_ERROR:
+      showError(message.error || 'An unknown error occurred.');
+      break;
+  }
+
+  return false;
+});
+
+async function handleApply(result) {
+  showProgress('Applying optimized cart...', null, null);
+
+  const applyResult = await applyOptimizedCart(result);
+
+  if (!applyResult.success) {
+    showError(`Failed to apply cart: ${applyResult.error}`);
+    return;
+  }
+
+  if (applyResult.partial) {
+    const added = applyResult.totalCount - applyResult.failCount;
+    const fbCount = applyResult.fallbackCount || 0;
+    let msg = '';
+
+    if (fbCount > 0) {
+      msg += `${fbCount} item(s) were sold out and replaced with the next-cheapest listing:\n`;
+      for (const fb of (applyResult.fallbackItems || [])) {
+        msg += `  \u2022 ${fb.cardName}: $${fb.originalPrice} \u2192 $${fb.fallbackPrice} (${fb.fallbackSellerName})\n`;
+      }
+      msg += `\nYou may want to re-optimize your cart to find a better overall price.\n\n`;
+    }
+
+    if (applyResult.failCount > 0) {
+      msg += `${applyResult.failCount} item(s) could not be added:\n`;
+      for (const fi of applyResult.failedItems) {
+        const set = fi.setName ? ` (${fi.setName})` : '';
+        msg += `  \u2022 ${fi.cardName}${set}: ${fi.reason}\n`;
+      }
+      msg += `\nYou may need to add the missing items manually.\n`;
+    }
+
+    msg += `\nAdded ${added} of ${applyResult.totalCount} items. The page will reload.`;
+    alert(msg);
+  }
+
+  window.location.reload();
+}
+
+console.log('[TCGmizer] Content script loaded on cart page.');

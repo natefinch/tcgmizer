@@ -1,0 +1,37 @@
+// TCGPlayer-specific constants
+export const TCGPLAYER_MIN_ORDER_PER_SELLER = 1.00; // $1 minimum per seller
+export const DEFAULT_FETCH_DELAY_MS = 600;
+export const DEFAULT_MAX_LISTINGS_PER_CARD = 50;
+export const MAX_ALTERNATIVE_PRINTINGS = 5; // max alt printings to fetch per card name
+export const DEFAULT_TOP_K_LISTINGS = 25; // kept for ILP after pruning
+export const DEFAULT_SOLVER_TIMEOUT_S = 30;
+export const LISTINGS_PER_PAGE = 50;
+
+// Message types between extension components
+export const MSG = {
+  // Content → Background
+  START_OPTIMIZATION: 'START_OPTIMIZATION',
+  SOLVE_WITH_CONFIG: 'SOLVE_WITH_CONFIG',
+  APPLY_CART: 'APPLY_CART',
+
+  // Background → Content
+  OPTIMIZATION_PROGRESS: 'OPTIMIZATION_PROGRESS',
+  LISTINGS_READY: 'LISTINGS_READY',
+  OPTIMIZATION_RESULT: 'OPTIMIZATION_RESULT',
+  OPTIMIZATION_MULTI_RESULT: 'OPTIMIZATION_MULTI_RESULT',
+  OPTIMIZATION_ERROR: 'OPTIMIZATION_ERROR',
+
+  // Popup → Content
+  TOGGLE_PANEL: 'TOGGLE_PANEL',
+};
+
+// Optimization progress stages
+export const STAGE = {
+  READING_CART: 'READING_CART',
+  FETCHING_LISTINGS: 'FETCHING_LISTINGS',
+  BUILDING_ILP: 'BUILDING_ILP',
+  SOLVING: 'SOLVING',
+  PARSING_SOLUTION: 'PARSING_SOLUTION',
+  DONE: 'DONE',
+  ERROR: 'ERROR',
+};
