@@ -2,6 +2,13 @@
 
 A Chrome extension that optimizes your [TCGPlayer](https://www.tcgplayer.com) shopping cart to find the mathematically cheapest combination of sellers, including shipping costs.
 
+### Filter the way you like
+<img width="1203" height="828" alt="image" src="https://github.com/user-attachments/assets/e0b832ce-2ac3-45e0-a9a0-3c7f5d6b7c0f" />
+
+### Save money and time
+<img width="1180" height="887" alt="image" src="https://github.com/user-attachments/assets/ca67c014-27bc-4eaa-87dd-b2ed41de36e3" />
+
+
 ## The Problem
 
 When buying trading cards on TCGPlayer, each seller charges their own shipping fee. A cart with cards spread across many sellers can rack up significant shipping costs. Manually figuring out which sellers to buy from — balancing item prices, shipping fees, and free shipping thresholds — is tedious and nearly impossible to do optimally by hand.
