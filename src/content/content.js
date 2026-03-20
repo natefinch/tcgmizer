@@ -19,10 +19,75 @@ import { injectUI, onStartClick, showPanel, showProgress, showConfig, showResult
 // Initialize UI (hidden until toggled via popup)
 injectUI();
 
+// Inject "Optimize with TCGmizer" button next to TCGPlayer's own optimize button
+injectCartButton();
+
 // Handle "Optimize Cart" button click
 onStartClick(() => {
   startFetchPhase();
 });
+
+/**
+ * Inject an "Optimize with TCGmizer" button next to TCGPlayer's optimize button.
+ * Uses a MutationObserver since the cart page is an SPA and the button may not exist yet.
+ */
+function injectCartButton() {
+  const BUTTON_ID = 'tcgmizer-cart-btn';
+
+  function tryInject() {
+    if (document.getElementById(BUTTON_ID)) return true;
+
+    const optimizeBlock = document.querySelector('.optimize-btn-block');
+    if (!optimizeBlock) return false;
+
+    const wrapper = document.createElement('div');
+    const blockStyles = getComputedStyle(optimizeBlock);
+    wrapper.style.cssText = `
+      padding: ${blockStyles.padding};
+      margin-top: 12px;
+      background: ${blockStyles.background};
+      border: ${blockStyles.border};
+      border-radius: ${blockStyles.borderRadius};
+      box-shadow: ${blockStyles.boxShadow};
+    `;
+
+    const btn = document.createElement('button');
+    btn.id = BUTTON_ID;
+    btn.type = 'button';
+    btn.textContent = '⚡ Optimize with TCGmizer';
+    btn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 10px 16px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      background: #2e9e5e;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    `;
+    btn.addEventListener('mouseenter', () => { btn.style.background = '#258a50'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = '#2e9e5e'; });
+    btn.addEventListener('click', () => {
+      showPanel();
+      startFetchPhase();
+    });
+
+    wrapper.appendChild(btn);
+    optimizeBlock.insertAdjacentElement('afterend', wrapper);
+    return true;
+  }
+
+  // Try immediately, then observe for SPA-rendered content
+  if (!tryInject()) {
+    const observer = new MutationObserver(() => {
+      if (tryInject()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
 
 function startFetchPhase() {
   showProgress('Reading cart...', null, null);

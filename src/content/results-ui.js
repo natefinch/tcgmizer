@@ -90,6 +90,7 @@ export function injectUI() {
       panel._onStart();
     }
   });
+
 }
 
 /**
@@ -301,21 +302,8 @@ export function showResults(result, onApply) {
 
   let sellersHtml = '';
   for (const seller of result.sellers) {
-    const itemsHtml = seller.items.map(item => {
-      const changed = item.attributeChanged ? ' <span class="tcgmizer-changed" title="Different version than original">⚠️</span>' : '';
-      const details = [abbreviateCondition(item.condition), cleanSetName(item.setName), item.language].filter(Boolean).join(' · ');
-      const imgUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${item.productId}_200w.jpg`;
-      return `
-        <div class="tcgmizer-item">
-          <img class="tcgmizer-item-img" src="${imgUrl}" alt="${escapeHtml(item.cardName)}" loading="lazy" />
-          <div class="tcgmizer-item-info">
-            <span class="tcgmizer-item-name">${escapeHtml(item.cardName)}${changed}</span>
-            <span class="tcgmizer-item-details">${escapeHtml(details)}</span>
-          </div>
-          <span class="tcgmizer-item-price">$${item.price.toFixed(2)}</span>
-        </div>
-      `;
-    }).join('');
+    const grouped = groupItems(seller.items);
+    const itemsHtml = renderGroupedItems(grouped, true);
 
     const shippingLabel = seller.freeShipping
       ? '<span class="tcgmizer-free-shipping">FREE shipping</span>'
@@ -365,7 +353,7 @@ export function showResults(result, onApply) {
 
   // Apply button
   resultsDiv.querySelector('.tcgmizer-apply').addEventListener('click', () => {
-    if (confirm('This will replace your current TCGPlayer cart with the optimized selections. Continue?')) {
+    if (confirm('This will replace your current TCGPlayer cart with the optimized selections. This cannot be undone! Continue?')) {
       if (typeof onApply === 'function') onApply(result);
     }
   });
@@ -413,20 +401,8 @@ export function showMultiResults(results, onApply) {
     // Build the expandable detail (seller breakdown)
     let detailHtml = '';
     for (const seller of r.sellers) {
-      const itemsHtml = seller.items.map(item => {
-        const details = [abbreviateCondition(item.condition), cleanSetName(item.setName), item.language].filter(Boolean).join(' · ');
-        const imgUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${item.productId}_200w.jpg`;
-        return `
-          <div class="tcgmizer-item">
-            <img class="tcgmizer-item-img" src="${imgUrl}" alt="${escapeHtml(item.cardName)}" loading="lazy" />
-            <div class="tcgmizer-item-info">
-              <span class="tcgmizer-item-name">${escapeHtml(item.cardName)}</span>
-              <span class="tcgmizer-item-details">${escapeHtml(details)}</span>
-            </div>
-            <span class="tcgmizer-item-price">$${item.price.toFixed(2)}</span>
-          </div>
-        `;
-      }).join('');
+      const grouped = groupItems(seller.items);
+      const itemsHtml = renderGroupedItems(grouped, false);
 
       const shippingLabel = seller.freeShipping
         ? '<span class="tcgmizer-free-shipping">FREE shipping</span>'
@@ -513,7 +489,7 @@ export function showMultiResults(results, onApply) {
     btn.addEventListener('click', (e) => {
       const idx = parseInt(e.target.closest('.tcgmizer-compare-row').dataset.index, 10);
       const result = results[idx];
-      if (confirm(`Apply cart with ${result.sellerCount} vendor${result.sellerCount !== 1 ? 's' : ''} ($${result.totalCost.toFixed(2)})? This will replace your current TCGPlayer cart.`)) {
+      if (confirm(`Apply cart with ${result.sellerCount} vendor${result.sellerCount !== 1 ? 's' : ''} ($${result.totalCost.toFixed(2)})? This will replace your current TCGPlayer cart. This cannot be undone!`)) {
         if (typeof onApply === 'function') onApply(result);
       }
     });
@@ -584,6 +560,52 @@ function abbreviateCondition(condition) {
  * from a set name string like "Lorwyn Eclipsed, Magic: The Gathering, R, 349".
  * Returns just the set name portion.
  */
+/**
+ * Group identical items (same productId, condition, language, price) into
+ * { item, qty } entries so we can show "×2" instead of duplicate rows.
+ */
+function groupItems(items) {
+  const groups = [];
+  const keyMap = new Map(); // key → index in groups
+  for (const item of items) {
+    const key = `${item.productId}|${item.condition}|${item.language}|${item.price}|${item.productConditionId}`;
+    if (keyMap.has(key)) {
+      groups[keyMap.get(key)].qty += 1;
+    } else {
+      keyMap.set(key, groups.length);
+      groups.push({ item, qty: 1 });
+    }
+  }
+  return groups;
+}
+
+/**
+ * Render grouped items to HTML.
+ * @param {Array<{item, qty}>} groups
+ * @param {boolean} showChanged - whether to show the printing-changed indicator
+ */
+function renderGroupedItems(groups, showChanged) {
+  return groups.map(({ item, qty }) => {
+    const changed = showChanged && item.printingChanged
+      ? ` <span class="tcgmizer-changed" title="Different printing (originally ${escapeHtml(cleanSetName(item.originalSetName) || 'unknown set')})">🔀</span>`
+      : '';
+    const qtyBadge = qty > 1 ? `<span class="tcgmizer-item-qty">${qty}×</span> ` : '';
+    const details = [abbreviateCondition(item.condition), cleanSetName(item.setName), item.language].filter(Boolean).join(' · ');
+    const imgUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${item.productId}_200w.jpg`;
+    const priceText = qty > 1 ? `$${item.price.toFixed(2)} ea` : `$${item.price.toFixed(2)}`;
+    return `
+      <div class="tcgmizer-item">
+        <img class="tcgmizer-item-img" src="${imgUrl}" alt="${escapeHtml(item.cardName)}" loading="lazy" />
+        <div class="tcgmizer-item-info">
+          <span class="tcgmizer-item-name">${qtyBadge}${escapeHtml(item.cardName)}${changed}</span>
+          <span class="tcgmizer-item-details">${escapeHtml(details)}</span>
+        </div>
+        <span class="tcgmizer-item-price">${priceText}</span>
+      </div>
+    `;
+  }).join('');
+}
+
 function cleanSetName(setName) {
   if (!setName) return '';
   // Cart-reader set strings look like "SetName, Game Name, Rarity, CollectorNum"

@@ -250,7 +250,7 @@ async function fetchSellerShippingInfo(sellersMap) {
 
     // Small delay between batches
     if (i + BATCH_SIZE < body.length) {
-      await sleep(200);
+      await sleep(100);
     }
   }
 

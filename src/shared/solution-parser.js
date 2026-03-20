@@ -59,9 +59,10 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
       productConditionId: listing.productConditionId,
       condition: listing.condition,
       setName: listing.setName,
+      originalSetName: slot?.setName || '',
       language: listing.language,
       price: listing.price,
-      attributeChanged: listing.productId !== slot?.productId,
+      printingChanged: listing.productId !== slot?.productId,
       directSeller: listing.directSeller || false,
       customListingKey: listing.customListingKey || null,
     });

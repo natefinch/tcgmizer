@@ -196,6 +196,7 @@ async function runFetchPhase(tabId, cartData) {
           cardName: item.cardName,
           productId: item.productId,
           originalSkuId: item.skuId,
+          setName: item.setName || '',
         });
       }
       productSlotCount.set(item.productId, startIdx + qty);
@@ -275,7 +276,7 @@ async function runFetchPhase(tabId, cartData) {
 
       // Small delay between search calls
       if (i < uniqueCardNames.length - 1) {
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 100));
       }
     }
 
