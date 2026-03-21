@@ -32,18 +32,15 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 - **Mathematically optimal** — not a heuristic or approximation. Uses the [HiGHS](https://highs.dev/) solver (the same engine used in academic and industrial optimization) running entirely in your browser via WebAssembly.
 - **Alternative printings** — automatically searches for cheaper printings of each card across all sets. Toggle "Exact printings only" if you want specific versions.
 - **Filter by language and condition** — choose which languages and conditions are acceptable before solving.
-- **Max vendors** — optionally cap the number of sellers to reduce the number of packages you receive.
 - **Minimize vendors mode** — solves at multiple vendor counts and shows you the price/convenience tradeoff so you can choose.
 - **Vendor ban list** — search for sellers by name and add them to a persistent ban list via the Settings page. When optimizing, check "Exclude banned vendors" to automatically remove their listings from consideration. The ban list syncs across devices via Chrome storage.
 - **Free shipping awareness** — knows each seller's free shipping threshold and factors it into the optimization. Sometimes spending slightly more at one seller triggers free shipping and saves money overall.
-- **Fast concurrent fetching** — fetches listings for multiple cards in parallel (5 at a time by default) and deduplicates requests for the same product, dramatically reducing wait times for large carts.
-- **Custom listing support** — handles seller-uploaded custom listings (the ones with their own photos) alongside standard listings.
 - **One-click apply** — replaces your cart with the optimized version. If any item is sold out, it automatically falls back to the next cheapest option.
 - **Runs entirely in your browser** — no external servers, no accounts, no data collection. Everything happens locally using TCGPlayer's own public APIs.
 
 ## Installation
 
-1. Download or clone this repository.
+1. Dowload and unzip the latest [release](https://github.com/natefinch/tcgmizer/releases).
 2. Open Chrome and go to `chrome://extensions`.
 3. Enable **Developer mode** (toggle in the top right).
 4. Click **Load unpacked** and select the repository folder.
@@ -55,8 +52,3 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 npm run build        # One-time build
 npm run watch        # Rebuild on changes
 ```
-
-## Requirements
-
-- Google Chrome (Manifest V3)
-- A TCGPlayer cart with items in it

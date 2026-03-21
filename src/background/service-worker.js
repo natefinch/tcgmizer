@@ -503,7 +503,7 @@ async function runSolvePhase(tabId, config) {
       await runMultiSolve(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config, fallbackMap);
     } else {
       // Single solve — optimize for price first, then minimize vendors at that price
-      const result = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config.maxSellers || null);
+      const result = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, null);
       if (result && result.success) {
         // Try to reduce vendor count without increasing price
         const optimalCost = result.totalCost;
@@ -530,7 +530,7 @@ async function runSolvePhase(tabId, config) {
         // but infeasible doesn't send one, so handle that case here.
         sendToTab(tabId, {
           type: MSG.OPTIMIZATION_ERROR,
-          error: `No feasible solution found. ${config.maxSellers ? 'Try increasing the max vendors limit or relaxing filters.' : 'Try relaxing your filters.'}`,
+          error: 'No feasible solution found. Try relaxing your filters.',
         });
       }
     }
@@ -622,10 +622,9 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
   const results = [];
 
   // First: solve with no vendor limit (or user's max if set) to get baseline
-  const maxCap = config.maxSellers || null;
   sendProgress(tabId, STAGE.SOLVING, { message: 'Finding optimal price (no vendor limit)...' });
 
-  const baseline = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, maxCap, true);
+  const baseline = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, null, true);
   if (!baseline || !baseline.success) {
     sendToTab(tabId, {
       type: MSG.OPTIMIZATION_ERROR,

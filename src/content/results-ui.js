@@ -203,11 +203,6 @@ export function showConfig(options, onSolve) {
     </div>
 
     <div class="tcgmizer-config-section">
-      <div class="tcgmizer-config-label">Max Vendors</div>
-      <div class="tcgmizer-config-inline">
-        <input type="number" class="tcgmizer-input tcgmizer-max-sellers" min="1" placeholder="No limit" />
-        <span class="tcgmizer-config-hint">Leave empty for no limit</span>
-      </div>
       <label class="tcgmizer-checkbox-label tcgmizer-minimize-vendors-label">
         <input type="checkbox" class="tcgmizer-minimize-vendors" /> Minimize Number of Vendors
       </label>
@@ -280,8 +275,6 @@ export function showConfig(options, onSolve) {
   configDiv.querySelector('.tcgmizer-run-solver').addEventListener('click', () => {
     const selectedLangs = [...configDiv.querySelectorAll('.tcgmizer-lang-options input:checked')].map(cb => cb.value);
     const selectedConds = [...configDiv.querySelectorAll('.tcgmizer-cond-options input:checked')].map(cb => cb.value);
-    const maxSellersVal = configDiv.querySelector('.tcgmizer-max-sellers').value;
-    const maxSellers = maxSellersVal ? parseInt(maxSellersVal, 10) : null;
     const minimizeVendors = configDiv.querySelector('.tcgmizer-minimize-vendors').checked;
     const exactPrintings = configDiv.querySelector('.tcgmizer-exact-printings').checked;
 
@@ -300,7 +293,6 @@ export function showConfig(options, onSolve) {
     const config = {
       languages: selectedLangs.length === options.languages.length ? [] : selectedLangs,
       conditions: selectedConds.length === options.conditions.length ? [] : selectedConds,
-      maxSellers: maxSellers && maxSellers > 0 ? maxSellers : null,
       minimizeVendors,
       exactPrintings,
       bannedSellerKeys,
