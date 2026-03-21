@@ -824,6 +824,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       return false;
 
+    case 'OPEN_OPTIONS_PAGE':
+      chrome.runtime.openOptionsPage();
+      sendResponse({ ok: true });
+      return false;
+
     default:
       return false;
   }

@@ -160,10 +160,11 @@ export function showConfig(options, onSolve) {
     </label>`;
   }).join('');
 
-  // Build condition checkboxes (all checked by default)
+  // Build condition checkboxes (all checked by default, except Damaged)
   const condCheckboxes = options.conditions.map(cond => {
+    const checked = cond === 'Damaged' ? '' : 'checked';
     return `<label class="tcgmizer-checkbox-label">
-      <input type="checkbox" value="${escapeHtml(cond)}" checked /> ${escapeHtml(cond)}
+      <input type="checkbox" value="${escapeHtml(cond)}" ${checked} /> ${escapeHtml(cond)}
     </label>`;
   }).join('');
 
@@ -216,6 +217,7 @@ export function showConfig(options, onSolve) {
       <label class="tcgmizer-checkbox-label">
         <input type="checkbox" class="tcgmizer-exclude-banned" checked disabled /> Exclude banned vendors <span class="tcgmizer-ban-count-label">(loading...)</span>
       </label>
+      <a href="#" class="tcgmizer-manage-ban-link" style="font-size:12px;color:#2e9e5e;margin-left:4px;text-decoration:none;cursor:pointer;">Manage</a>
     </div>
 
     <div class="tcgmizer-config-actions">
@@ -225,10 +227,10 @@ export function showConfig(options, onSolve) {
   `;
 
   // Load banned sellers and update the checkbox
-  chrome.storage.sync.get('bannedSellers', (data) => {
-    const banned = data.bannedSellers || [];
+  function updateBanUI(banned) {
     const checkbox = configDiv.querySelector('.tcgmizer-exclude-banned');
     const label = configDiv.querySelector('.tcgmizer-ban-count-label');
+    if (!checkbox || !label) return;
     if (banned.length === 0) {
       checkbox.checked = false;
       checkbox.disabled = true;
@@ -238,8 +240,24 @@ export function showConfig(options, onSolve) {
       checkbox.checked = true;
       label.textContent = `(${banned.length} banned)`;
     }
-    // Store the keys on the checkbox element for easy access later
     checkbox._bannedKeys = banned.map(s => s.sellerKey);
+  }
+
+  chrome.storage.sync.get('bannedSellers', (data) => {
+    updateBanUI(data.bannedSellers || []);
+  });
+
+  // Live-update when ban list changes (e.g. user edits it in the options page)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && changes.bannedSellers) {
+      updateBanUI(changes.bannedSellers.newValue || []);
+    }
+  });
+
+  // Manage ban list link
+  configDiv.querySelector('.tcgmizer-manage-ban-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' });
   });
 
   // Select all / none links
