@@ -43,16 +43,11 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 
 ## Installation
 
-1. Clone this repository.
-2. Install dependencies and build:
-   ```
-   npm install
-   npm run build
-   ```
-3. Open Chrome and go to `chrome://extensions`.
-4. Enable **Developer mode** (toggle in the top right).
-5. Click **Load unpacked** and select the repository folder.
-6. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
+1. Download or clone this repository.
+2. Open Chrome and go to `chrome://extensions`.
+3. Enable **Developer mode** (toggle in the top right).
+4. Click **Load unpacked** and select the repository folder.
+5. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
 
 ## Building
 

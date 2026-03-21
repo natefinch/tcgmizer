@@ -9,6 +9,7 @@ export const MAX_ALTERNATIVE_PRINTINGS = 5; // max alt printings to fetch per ca
 export const DEFAULT_TOP_K_LISTINGS = 25; // kept for ILP after pruning
 export const DEFAULT_SOLVER_TIMEOUT_S = 30;
 export const LISTINGS_PER_PAGE = 50;
+export const SEARCH_RESULTS_PER_PAGE = 50; // TCGPlayer search API max page size
 
 // Message types between extension components
 export const MSG = {
