@@ -49,7 +49,7 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 4. Click **Load unpacked** and select the repository folder.
 5. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
 
-## Building
+## Building for Development
 
 ```
 npm run build        # One-time build
