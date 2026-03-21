@@ -2,6 +2,15 @@
 
 A Chrome extension that optimizes your [TCGPlayer](https://www.tcgplayer.com) shopping cart to find the mathematically cheapest combination of sellers, including shipping costs.
 
+## Installation
+
+1. Download and unzip the latest [release](https://github.com/natefinch/tcgmizer/releases).
+2. Open Chrome and go to `chrome://extensions`.
+3. Enable **Developer mode** (toggle in the top right).
+4. Click **Load unpacked** and select the repository folder.
+5. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
+
+
 ### Filter the way you like
 <img width="957" height="758" alt="image" src="https://github.com/user-attachments/assets/7f5f73bb-9bb0-483c-bac1-673202847b6a" />
 
@@ -9,11 +18,7 @@ A Chrome extension that optimizes your [TCGPlayer](https://www.tcgplayer.com) sh
 <img width="943" height="811" alt="image" src="https://github.com/user-attachments/assets/0825d071-2bb4-4dfa-9ed2-8758c4d0a85a" />
 
 
-## The Problem
-
-When buying trading cards on TCGPlayer, each seller charges their own shipping fee. A cart with cards spread across many sellers can rack up significant shipping costs. Manually figuring out which sellers to buy from — balancing item prices, shipping fees, and free shipping thresholds — is tedious and nearly impossible to do optimally by hand.
-
-## The Solution
+## Smart Optimization
 
 TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer_programming) (ILP) to find the true mathematical optimum. It reads your cart, fetches current listings and shipping rates from TCGPlayer, builds a cost-minimization model, solves it, and can apply the optimized cart with one click.
 
@@ -38,13 +43,6 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 - **One-click apply** — replaces your cart with the optimized version. If any item is sold out, it automatically falls back to the next cheapest option.
 - **Runs entirely in your browser** — no external servers, no accounts, no data collection. Everything happens locally using TCGPlayer's own public APIs.
 
-## Installation
-
-1. Dowload and unzip the latest [release](https://github.com/natefinch/tcgmizer/releases).
-2. Open Chrome and go to `chrome://extensions`.
-3. Enable **Developer mode** (toggle in the top right).
-4. Click **Load unpacked** and select the repository folder.
-5. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
 
 ## Building for Development
 
