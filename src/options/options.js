@@ -3,7 +3,7 @@
 const STORAGE_KEY = 'bannedSellers';
 const SELLER_SEARCH_URL = 'https://mpapi.tcgplayer.com/v2/ShopBySeller/GetSellerSearchResults';
 
-let bannedSellers = []; // { sellerKey, sellerName }
+let bannedSellers = []; // { sellerKey, sellerName, comment? }
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadBanList();
@@ -48,10 +48,19 @@ function renderBanList() {
     const item = document.createElement('div');
     item.className = 'ban-list-item';
     item.innerHTML = `
-      <span class="ban-list-name">${escapeHtml(seller.sellerName)}</span>
+      <div class="ban-list-info">
+        <span class="ban-list-name">${escapeHtml(seller.sellerName)}</span>
+        <input type="text" class="ban-list-comment" placeholder="Add a note..." value="${escapeHtml(seller.comment || '')}" />
+      </div>
       <button class="options-btn options-btn-danger" data-key="${escapeHtml(seller.sellerKey)}">Remove</button>
     `;
     item.querySelector('button').addEventListener('click', () => removeSeller(seller.sellerKey));
+    const commentInput = item.querySelector('.ban-list-comment');
+    let debounceTimer;
+    commentInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => updateComment(seller.sellerKey, commentInput.value), 400);
+    });
     listEl.appendChild(item);
   }
 }
@@ -62,9 +71,16 @@ async function removeSeller(sellerKey) {
   renderBanList();
 }
 
+async function updateComment(sellerKey, comment) {
+  const seller = bannedSellers.find(s => s.sellerKey === sellerKey);
+  if (!seller) return;
+  seller.comment = comment;
+  await saveBanList();
+}
+
 async function addSeller(sellerKey, sellerName) {
   if (bannedSellers.some(s => s.sellerKey === sellerKey)) return;
-  bannedSellers.push({ sellerKey, sellerName });
+  bannedSellers.push({ sellerKey, sellerName, comment: '' });
   await saveBanList();
   renderBanList();
   // Update search results to reflect the "already banned" state

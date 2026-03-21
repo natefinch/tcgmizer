@@ -181,16 +181,46 @@ h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   background: #fff5f5;
   border: 1px solid #f0d0d0;
   border-radius: 6px;
 }
 
+.ban-list-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .ban-list-name {
   font-size: 14px;
   color: #222;
   font-weight: 500;
+}
+
+.ban-list-comment {
+  font-size: 12px;
+  color: #666;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: inherit;
+  width: 100%;
+}
+
+.ban-list-comment:hover {
+  border-color: #e0d0d0;
+}
+
+.ban-list-comment:focus {
+  outline: none;
+  border-color: #2e9e5e;
+  background: #fff;
 }
 
 .ban-count {

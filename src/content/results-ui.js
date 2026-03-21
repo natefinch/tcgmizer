@@ -221,6 +221,34 @@ export function showConfig(options, onSolve) {
     </div>
   `;
 
+  // Restore saved optimizer settings (if any)
+  chrome.storage.local.get('optimizerSettings', (data) => {
+    const saved = data.optimizerSettings;
+    if (!saved) return;
+
+    // Restore language checkboxes
+    if (saved.languages && saved.languages.length > 0) {
+      configDiv.querySelectorAll('.tcgmizer-lang-options input[type="checkbox"]').forEach(cb => {
+        cb.checked = saved.languages.includes(cb.value);
+      });
+    }
+
+    // Restore condition checkboxes
+    if (saved.conditions && saved.conditions.length > 0) {
+      configDiv.querySelectorAll('.tcgmizer-cond-options input[type="checkbox"]').forEach(cb => {
+        cb.checked = saved.conditions.includes(cb.value);
+      });
+    }
+
+    // Restore toggles
+    if (saved.minimizeVendors != null) {
+      configDiv.querySelector('.tcgmizer-minimize-vendors').checked = saved.minimizeVendors;
+    }
+    if (saved.exactPrintings != null) {
+      configDiv.querySelector('.tcgmizer-exact-printings').checked = saved.exactPrintings;
+    }
+  });
+
   // Load banned sellers and update the checkbox
   function updateBanUI(banned) {
     const checkbox = configDiv.querySelector('.tcgmizer-exclude-banned');
@@ -289,6 +317,16 @@ export function showConfig(options, onSolve) {
       alert('Please select at least one condition.');
       return;
     }
+
+    // Save selections for next time
+    chrome.storage.local.set({
+      optimizerSettings: {
+        languages: selectedLangs,
+        conditions: selectedConds,
+        minimizeVendors,
+        exactPrintings,
+      },
+    });
 
     const config = {
       languages: selectedLangs.length === options.languages.length ? [] : selectedLangs,
