@@ -3,10 +3,10 @@
 A Chrome extension that optimizes your [TCGPlayer](https://www.tcgplayer.com) shopping cart to find the mathematically cheapest combination of sellers, including shipping costs.
 
 ### Filter the way you like
-<img width="1203" height="828" alt="image" src="https://github.com/user-attachments/assets/e0b832ce-2ac3-45e0-a9a0-3c7f5d6b7c0f" />
+<img width="957" height="758" alt="image" src="https://github.com/user-attachments/assets/7f5f73bb-9bb0-483c-bac1-673202847b6a" />
 
 ### Save money and time
-<img width="1180" height="887" alt="image" src="https://github.com/user-attachments/assets/ca67c014-27bc-4eaa-87dd-b2ed41de36e3" />
+<img width="943" height="811" alt="image" src="https://github.com/user-attachments/assets/0825d071-2bb4-4dfa-9ed2-8758c4d0a85a" />
 
 
 ## The Problem
