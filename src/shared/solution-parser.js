@@ -1,3 +1,5 @@
+import { TCGPLAYER_DIRECT_SHIPPING_COST, TCGPLAYER_DIRECT_FREE_SHIPPING_THRESHOLD } from './constants.js';
+
 /**
  * Parses a HiGHS solution object into a structured cart optimization result.
  *
@@ -64,12 +66,37 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
       price: listing.price,
       printingChanged: listing.productId !== slot?.productId,
       directSeller: listing.directSeller || false,
+      directListing: listing.directListing || false,
       customListingKey: listing.customListingKey || null,
     });
     entry.subtotal += listing.price;
   }
 
-  // Calculate shipping
+  // --- TCGPlayer Direct grouping ---
+  // If ALL items from a seller are directListing, those items move to a
+  // consolidated "TCGPlayer Direct" group. If a seller has mixed direct/non-direct,
+  // all items stay with the seller and use the seller's own shipping.
+  const directItems = [];
+  let directSubtotal = 0;
+  const sellersToRemove = new Set();
+
+  for (const [sellerId, data] of sellerMap) {
+    const allDirect = data.items.every(item => item.directListing);
+    if (allDirect) {
+      for (const item of data.items) {
+        directItems.push(item);
+      }
+      directSubtotal += data.subtotal;
+      sellersToRemove.add(sellerId);
+    }
+  }
+
+  // Remove all-direct sellers from the main sellerMap
+  for (const sellerId of sellersToRemove) {
+    sellerMap.delete(sellerId);
+  }
+
+  // Calculate shipping for remaining (non-direct) sellers
   let totalItemCost = 0;
   let totalShipping = 0;
   const sellerResults = [];
@@ -100,12 +127,40 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
     });
   }
 
-  // Sort sellers by total descending for readability
+  // Add TCGPlayer Direct group if there are any direct items
+  if (directItems.length > 0) {
+    const directFreeShipping = directSubtotal >= TCGPLAYER_DIRECT_FREE_SHIPPING_THRESHOLD;
+    const directShipping = directFreeShipping ? 0 : TCGPLAYER_DIRECT_SHIPPING_COST;
+
+    totalItemCost += directSubtotal;
+    totalShipping += directShipping;
+
+    // Insert at the beginning so it appears at the top
+    sellerResults.unshift({
+      sellerId: '__tcgplayer_direct__',
+      sellerName: 'TCGplayer Direct',
+      sellerNumericId: null,
+      sellerKey: '__tcgplayer_direct__',
+      items: directItems,
+      subtotal: roundCents(directSubtotal),
+      shippingCost: roundCents(directShipping),
+      freeShipping: directFreeShipping,
+      freeShippingThreshold: TCGPLAYER_DIRECT_FREE_SHIPPING_THRESHOLD,
+      sellerTotal: roundCents(directSubtotal + directShipping),
+      isDirect: true,
+    });
+  }
+
+  // Sort non-direct sellers by total descending for readability
+  // (Direct group stays at top since we unshifted it)
+  const directGroup = directItems.length > 0 ? sellerResults.shift() : null;
   sellerResults.sort((a, b) => b.sellerTotal - a.sellerTotal);
+  if (directGroup) sellerResults.unshift(directGroup);
 
   // Flag sellers below TCGPlayer's $1 minimum order
   const warnings = [];
   for (const sr of sellerResults) {
+    if (sr.isDirect) continue; // Direct group has no per-seller minimum
     if (sr.subtotal < 1.0) {
       warnings.push(`${sr.sellerName}: $${sr.subtotal.toFixed(2)} subtotal is below TCGPlayer's $1 minimum`);
     }

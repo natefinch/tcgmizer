@@ -192,6 +192,11 @@
   padding: 10px 12px;
 }
 
+.tcgmizer-seller-direct {
+  background: #f0f7ff;
+  border-color: #b3d4fc;
+}
+
 .tcgmizer-seller-header {
   display: flex;
   justify-content: space-between;

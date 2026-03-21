@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TCGmizer Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <h1>⚡ TCGmizer Settings</h1>
+
+    <section class="options-section">
+      <h2>Banned Vendors</h2>
+      <p class="options-hint">Search for a vendor by name and add them to your ban list. Banned vendors will be excluded from cart optimization.</p>
+
+      <div class="search-row">
+        <input type="text" id="seller-search" class="options-input" placeholder="Search for a vendor..." />
+        <button id="search-btn" class="options-btn options-btn-primary">Search</button>
+      </div>
+
+      <div id="search-results" class="search-results" style="display:none"></div>
+      <div id="search-empty" class="search-empty" style="display:none">No sellers found.</div>
+      <div id="search-error" class="search-error" style="display:none"></div>
+      <div id="search-loading" class="search-loading" style="display:none">Searching...</div>
+    </section>
+
+    <section class="options-section">
+      <h2>Ban List <span id="ban-count" class="ban-count"></span></h2>
+      <div id="ban-list" class="ban-list">
+        <p class="ban-list-empty" id="ban-list-empty">No vendors banned yet.</p>
+      </div>
+    </section>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

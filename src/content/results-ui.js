@@ -212,11 +212,35 @@ export function showConfig(options, onSolve) {
       </label>
     </div>
 
+    <div class="tcgmizer-config-section tcgmizer-ban-section">
+      <label class="tcgmizer-checkbox-label">
+        <input type="checkbox" class="tcgmizer-exclude-banned" checked disabled /> Exclude banned vendors <span class="tcgmizer-ban-count-label">(loading...)</span>
+      </label>
+    </div>
+
     <div class="tcgmizer-config-actions">
       <button class="tcgmizer-btn tcgmizer-btn-primary tcgmizer-run-solver">Run Optimizer</button>
       <button class="tcgmizer-btn tcgmizer-refetch">Re-fetch Listings</button>
     </div>
   `;
+
+  // Load banned sellers and update the checkbox
+  chrome.storage.sync.get('bannedSellers', (data) => {
+    const banned = data.bannedSellers || [];
+    const checkbox = configDiv.querySelector('.tcgmizer-exclude-banned');
+    const label = configDiv.querySelector('.tcgmizer-ban-count-label');
+    if (banned.length === 0) {
+      checkbox.checked = false;
+      checkbox.disabled = true;
+      label.textContent = '(none banned)';
+    } else {
+      checkbox.disabled = false;
+      checkbox.checked = true;
+      label.textContent = `(${banned.length} banned)`;
+    }
+    // Store the keys on the checkbox element for easy access later
+    checkbox._bannedKeys = banned.map(s => s.sellerKey);
+  });
 
   // Select all / none links
   configDiv.querySelectorAll('.tcgmizer-select-all').forEach(a => {
@@ -243,6 +267,9 @@ export function showConfig(options, onSolve) {
     const minimizeVendors = configDiv.querySelector('.tcgmizer-minimize-vendors').checked;
     const exactPrintings = configDiv.querySelector('.tcgmizer-exact-printings').checked;
 
+    const excludeBannedCheckbox = configDiv.querySelector('.tcgmizer-exclude-banned');
+    const bannedSellerKeys = (excludeBannedCheckbox.checked && excludeBannedCheckbox._bannedKeys) ? excludeBannedCheckbox._bannedKeys : [];
+
     if (selectedLangs.length === 0) {
       alert('Please select at least one language.');
       return;
@@ -258,6 +285,7 @@ export function showConfig(options, onSolve) {
       maxSellers: maxSellers && maxSellers > 0 ? maxSellers : null,
       minimizeVendors,
       exactPrintings,
+      bannedSellerKeys,
     };
 
     if (typeof onSolve === 'function') onSolve(config);
@@ -302,26 +330,7 @@ export function showResults(result, onApply) {
 
   let sellersHtml = '';
   for (const seller of result.sellers) {
-    const grouped = groupItems(seller.items);
-    const itemsHtml = renderGroupedItems(grouped, true);
-
-    const shippingLabel = seller.freeShipping
-      ? '<span class="tcgmizer-free-shipping">FREE shipping</span>'
-      : `Shipping: $${seller.shippingCost.toFixed(2)}`;
-
-    sellersHtml += `
-      <div class="tcgmizer-seller">
-        <div class="tcgmizer-seller-header">
-          <span class="tcgmizer-seller-name">${escapeHtml(seller.sellerName)}</span>
-          <span class="tcgmizer-seller-total">$${seller.sellerTotal.toFixed(2)}</span>
-        </div>
-        <div class="tcgmizer-seller-meta">
-          ${seller.items.length} item${seller.items.length !== 1 ? 's' : ''} · 
-          Subtotal: $${seller.subtotal.toFixed(2)} · ${shippingLabel}
-        </div>
-        <div class="tcgmizer-seller-items">${itemsHtml}</div>
-      </div>
-    `;
+    sellersHtml += renderSellerBlock(seller, true);
   }
 
   resultsDiv.innerHTML = `
@@ -401,26 +410,7 @@ export function showMultiResults(results, onApply) {
     // Build the expandable detail (seller breakdown)
     let detailHtml = '';
     for (const seller of r.sellers) {
-      const grouped = groupItems(seller.items);
-      const itemsHtml = renderGroupedItems(grouped, false);
-
-      const shippingLabel = seller.freeShipping
-        ? '<span class="tcgmizer-free-shipping">FREE shipping</span>'
-        : `Shipping: $${seller.shippingCost.toFixed(2)}`;
-
-      detailHtml += `
-        <div class="tcgmizer-seller">
-          <div class="tcgmizer-seller-header">
-            <span class="tcgmizer-seller-name">${escapeHtml(seller.sellerName)}</span>
-            <span class="tcgmizer-seller-total">$${seller.sellerTotal.toFixed(2)}</span>
-          </div>
-          <div class="tcgmizer-seller-meta">
-            ${seller.items.length} item${seller.items.length !== 1 ? 's' : ''} · 
-            Subtotal: $${seller.subtotal.toFixed(2)} · ${shippingLabel}
-          </div>
-          <div class="tcgmizer-seller-items">${itemsHtml}</div>
-        </div>
-      `;
+      detailHtml += renderSellerBlock(seller, false);
     }
 
     rowsHtml += `
@@ -560,6 +550,38 @@ function abbreviateCondition(condition) {
  * from a set name string like "Lorwyn Eclipsed, Magic: The Gathering, R, 349".
  * Returns just the set name portion.
  */
+/**
+ * Render a seller block (used in both single-result and multi-result views).
+ * Handles TCGPlayer Direct styling when seller.isDirect is true.
+ */
+function renderSellerBlock(seller, showChanged) {
+  const grouped = groupItems(seller.items);
+  const itemsHtml = renderGroupedItems(grouped, showChanged);
+
+  const shippingLabel = seller.freeShipping
+    ? '<span class="tcgmizer-free-shipping">FREE shipping</span>'
+    : `Shipping: $${seller.shippingCost.toFixed(2)}`;
+
+  const directClass = seller.isDirect ? ' tcgmizer-seller-direct' : '';
+  const sellerNameHtml = seller.isDirect
+    ? `<img src="https://mp-assets.tcgplayer.com/img/direct-icon-new.svg" alt="Direct" style="height:14px;vertical-align:middle;margin-right:4px" />${escapeHtml(seller.sellerName)}`
+    : escapeHtml(seller.sellerName);
+
+  return `
+    <div class="tcgmizer-seller${directClass}">
+      <div class="tcgmizer-seller-header">
+        <span class="tcgmizer-seller-name">${sellerNameHtml}</span>
+        <span class="tcgmizer-seller-total">$${seller.sellerTotal.toFixed(2)}</span>
+      </div>
+      <div class="tcgmizer-seller-meta">
+        ${seller.items.length} item${seller.items.length !== 1 ? 's' : ''} · 
+        Subtotal: $${seller.subtotal.toFixed(2)} · ${shippingLabel}
+      </div>
+      <div class="tcgmizer-seller-items">${itemsHtml}</div>
+    </div>
+  `;
+}
+
 /**
  * Group identical items (same productId, condition, language, price) into
  * { item, qty } entries so we can show "×2" instead of duplicate rows.

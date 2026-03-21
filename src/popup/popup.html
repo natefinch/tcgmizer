@@ -44,6 +44,23 @@
       background: #ccc;
       cursor: default;
     }
+    .settings-btn {
+      display: block;
+      width: 100%;
+      padding: 8px 16px;
+      background: #fff;
+      color: #2e9e5e;
+      border: 1px solid #2e9e5e;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-bottom: 12px;
+    }
+    .settings-btn:hover {
+      background: #f0faf4;
+    }
     .status {
       font-size: 12px;
       padding: 8px;
@@ -61,6 +78,7 @@
   <p>Mathematically optimal TCGPlayer cart optimization.</p>
 
   <button class="toggle-btn" id="toggle-btn" disabled>Show Optimizer</button>
+  <button class="settings-btn" id="settings-btn">Settings</button>
 
   <div class="status">
     <span class="status-label">Status: </span>

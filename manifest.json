@@ -5,6 +5,7 @@
   "description": "Optimizes your TCGPlayer cart to minimize total cost including shipping, using integer linear programming.",
   "permissions": [
     "activeTab",
+    "scripting",
     "storage"
   ],
   "content_security_policy": {
@@ -31,6 +32,7 @@
       "run_at": "document_idle"
     }
   ],
+  "options_page": "src/options/options.html",
   "action": {
     "default_popup": "src/popup/popup.html",
     "default_icon": {

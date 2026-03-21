@@ -7,7 +7,7 @@
 import { MSG, STAGE, DEFAULT_SOLVER_TIMEOUT_S, MAX_ALTERNATIVE_PRINTINGS } from '../shared/constants.js';
 import { buildLP } from '../shared/ilp-builder.js';
 import { parseSolution } from '../shared/solution-parser.js';
-import { fetchAllListings, searchProductsByName } from './fetcher.js';
+import { fetchAllListings, searchProductsByName, searchAllCardPrintings } from './fetcher.js';
 
 // --- HiGHS Solver ---
 // importScripts MUST use static string paths in MV3 service workers.
@@ -22,6 +22,54 @@ try {
 
 // Increase session storage quota (default 10MB may not be enough for large carts)
 chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
+
+// In-memory cache for tab data (primary; no quota limits)
+const tabCacheMap = new Map();
+
+// Clean up in-memory cache when tabs are closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabCacheMap.delete(tabId)) {
+    console.log(`[TCGmizer SW] Cleared in-memory cache for closed tab ${tabId}`);
+  }
+  // Also clean session storage
+  chrome.storage.session.remove(`tcgmizer_cache_${tabId}`).catch(() => {});
+});
+
+// --- SPA Navigation Detection ---
+// TCGPlayer is a SPA. When navigating from another page (e.g. bulk add) to /cart,
+// Chrome won't inject declarative content_scripts because there's no full page load.
+// Detect URL changes to /cart and programmatically inject the content script.
+const CART_URL_PATTERN = /^https:\/\/(www\.)?tcgplayer\.com\/cart/;
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Only act when the URL changes to a cart page
+  if (!changeInfo.url || !CART_URL_PATTERN.test(changeInfo.url)) return;
+
+  // Try sending a ping to see if content script is already loaded
+  chrome.tabs.sendMessage(tabId, { type: 'PING' }).then(() => {
+    // Content script already present, nothing to do
+    console.log('[TCGmizer SW] Content script already loaded on tab', tabId);
+  }).catch(() => {
+    // Content script not present — inject it
+    console.log('[TCGmizer SW] SPA navigation to cart detected, injecting content script into tab', tabId);
+    chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['dist/content.js'],
+    }).then(() => {
+      console.log('[TCGmizer SW] Content script injected successfully');
+    }).catch(err => {
+      console.warn('[TCGmizer SW] Failed to inject content script:', err);
+    });
+
+    // Also inject the CSS
+    chrome.scripting.insertCSS({
+      target: { tabId },
+      files: ['src/content/results-ui.css'],
+    }).catch(err => {
+      console.warn('[TCGmizer SW] Failed to inject CSS:', err);
+    });
+  });
+});
 
 let highs = null;
 let highsLoading = null;
@@ -224,67 +272,43 @@ async function runFetchPhase(tabId, cartData) {
       if (item.setName) productIdToSetName.set(item.productId, item.setName);
     }
 
-    // Detect product line(s) from initial search results so we only match alt printings from the same game
-    const allowedProductLines = new Set();
-
     sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
-      message: `Searching for alternative printings (${uniqueCardNames.length} cards)...`,
+      message: 'Searching for alternative printings...',
       current: 0,
       total: uniqueCardNames.length,
     });
 
-    for (let i = 0; i < uniqueCardNames.length; i++) {
-      const name = uniqueCardNames[i];
-      sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
-        message: `Searching printings: ${i + 1}/${uniqueCardNames.length} — ${name}`,
-        current: i + 1,
-        total: uniqueCardNames.length,
-      });
+    const printingsResult = await searchAllCardPrintings(uniqueCardNames, seenProducts, {
+      onProgress: ({ current, total }) => {
+        sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
+          message: 'Searching for alternative printings...',
+          current,
+          total,
+        });
+      },
+    });
 
-      const printings = await searchProductsByName(name);
-
-      // On first pass, learn which product lines the original cart items belong to
-      for (const p of printings) {
-        if (seenProducts.has(p.productId) && p.productLineId) {
-          allowedProductLines.add(p.productLineId);
-        }
+    // Merge printings results into our maps
+    for (const [name, productIds] of printingsResult.cardNameToProductIds) {
+      if (!cardNameToProductIds.has(name)) {
+        cardNameToProductIds.set(name, productIds);
+      } else {
+        for (const id of productIds) cardNameToProductIds.get(name).add(id);
       }
-
-      // Limit to MAX_ALTERNATIVE_PRINTINGS new products per card
-      let added = 0;
-      for (const p of printings) {
-        // Only include alt printings from the same game/product line as cart items
-        if (allowedProductLines.size > 0 && p.productLineId && !allowedProductLines.has(p.productLineId)) {
-          continue;
-        }
-
-        if (!seenProducts.has(p.productId)) {
-          seenProducts.add(p.productId);
-          cardNameToProductIds.get(name).add(p.productId);
-          productCards.push({ productId: p.productId, cardName: name });
-          if (p.setName) productIdToSetName.set(p.productId, p.setName);
-          added++;
-          if (added >= MAX_ALTERNATIVE_PRINTINGS) break;
-        } else {
-          // Already have this product, but still record the set name
-          cardNameToProductIds.get(name).add(p.productId);
-          if (p.setName && !productIdToSetName.has(p.productId)) {
-            productIdToSetName.set(p.productId, p.setName);
-          }
-        }
-      }
-
-      // Small delay between search calls
-      if (i < uniqueCardNames.length - 1) {
-        await new Promise(r => setTimeout(r, 100));
-      }
+    }
+    for (const [id, setName] of printingsResult.productIdToSetName) {
+      if (!productIdToSetName.has(id)) productIdToSetName.set(id, setName);
+    }
+    for (const pc of printingsResult.productCards) {
+      seenProducts.add(pc.productId);
+      productCards.push(pc);
     }
 
     console.log(`[TCGmizer SW] Found ${productCards.length} total products (${productCards.length - uniqueCardNames.length} alternative printings)`);
 
     // --- Step 3: Fetch listings ---
     sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
-      message: `Fetching listings for ${productCards.length} unique products...`,
+      message: 'Fetching listings...',
       current: 0,
       total: productCards.length,
     });
@@ -296,9 +320,9 @@ async function runFetchPhase(tabId, cartData) {
     }));
 
     const { listings: rawListings, sellers } = await fetchAllListings(fetchCards, {
-      onProgress: ({ current, total, cardName }) => {
+      onProgress: ({ current, total }) => {
         sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
-          message: `Fetching listings: ${current}/${total} — ${cardName}`,
+          message: 'Fetching listings...',
           current,
           total,
         });
@@ -430,6 +454,14 @@ async function runSolvePhase(tabId, config) {
       filteredListings = filteredListings.filter(l => l.productId === slotOriginalProduct.get(l.slotId));
     }
 
+    // Banned sellers filter
+    if (config.bannedSellerKeys && config.bannedSellerKeys.length > 0) {
+      const bannedSet = new Set(config.bannedSellerKeys);
+      const before = filteredListings.length;
+      filteredListings = filteredListings.filter(l => !bannedSet.has(l.sellerId));
+      console.log(`[TCGmizer SW] Banned sellers filter: ${before} → ${filteredListings.length} listings (${bannedSet.size} sellers excluded)`);
+    }
+
     // Check coverage
     const listingsBySlot = new Map();
     for (const l of filteredListings) {
@@ -470,11 +502,29 @@ async function runSolvePhase(tabId, config) {
       // Multi-solve mode: find optimal, then try fewer vendors
       await runMultiSolve(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config, fallbackMap);
     } else {
-      // Single solve
+      // Single solve — optimize for price first, then minimize vendors at that price
       const result = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config.maxSellers || null);
-      if (result) {
-        result.fallbackListings = fallbackMap;
-        sendToTab(tabId, { type: MSG.OPTIMIZATION_RESULT, result });
+      if (result && result.success) {
+        // Try to reduce vendor count without increasing price
+        const optimalCost = result.totalCost;
+        let bestResult = result;
+
+        for (let n = result.sellerCount - 1; n >= 1; n--) {
+          sendProgress(tabId, STAGE.SOLVING, {
+            message: `Checking if ${n} vendor${n !== 1 ? 's' : ''} can match price...`,
+          });
+
+          const fewer = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, n, true);
+          if (!fewer || !fewer.success) break; // Infeasible — can't use fewer vendors
+          if (fewer.totalCost > optimalCost + 0.005) break; // More expensive (with floating-point tolerance)
+
+          // Same or lower cost with fewer vendors — use this instead
+          bestResult = fewer;
+          console.log(`[TCGmizer SW] Reduced to ${fewer.sellerCount} vendors at same price $${fewer.totalCost}`);
+        }
+
+        bestResult.fallbackListings = fallbackMap;
+        sendToTab(tabId, { type: MSG.OPTIMIZATION_RESULT, result: bestResult });
       } else {
         // solveSingle returns null on infeasible or error; if silent=false it already sent an error,
         // but infeasible doesn't send one, so handle that case here.
@@ -614,6 +664,25 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
   // Sort by vendor count ascending
   results.sort((a, b) => a.sellerCount - b.sellerCount);
 
+  // Filter out dominated results: if a result with fewer vendors has the
+  // same or lower displayed price, remove the higher-vendor option.
+  // Compare on rounded-to-cents values to avoid floating-point edge cases.
+  const beforeCount = results.length;
+  for (let i = results.length - 1; i >= 1; i--) {
+    const r = results[i];
+    const rCents = Math.round(r.totalCost * 100);
+    const dominated = results.some(other =>
+      other.sellerCount < r.sellerCount &&
+      Math.round(other.totalCost * 100) <= rCents
+    );
+    if (dominated) {
+      results.splice(i, 1);
+    }
+  }
+  if (results.length < beforeCount) {
+    console.log(`[TCGmizer SW] Removed ${beforeCount - results.length} dominated result(s) (same price, more vendors)`);
+  }
+
   // Attach fallback listings to each result
   for (const r of results) {
     r.fallbackListings = fallbackMap;
@@ -665,7 +734,7 @@ function buildFallbackMap(cardSlots, filteredListings, sellers) {
       sellerKey: listing.sellerKey || listing.sellerId,
       sellerName: seller?.sellerName || listing.sellerName || 'Unknown',
       price: listing.price,
-      isDirect: listing.directSeller || false,
+      isDirect: listing.directListing || false,
       setName: listing.setName || '',
       productId: listing.productId,
       customListingKey: listing.customListingKey || null,
@@ -684,22 +753,42 @@ function buildFallbackMap(cardSlots, filteredListings, sellers) {
   return result;
 }
 
-// --- Per-tab cache using chrome.storage.session (survives SW restarts) ---
+// --- Per-tab cache (in-memory primary, session storage backup) ---
 
 async function saveTabCache(tabId, data) {
+  // Always store in memory (no size limits)
+  tabCacheMap.set(tabId, data);
+  console.log(`[TCGmizer SW] Cached ${data.allListings.length} listings for tab ${tabId} (in-memory)`);
+
+  // Try to also persist to session storage for SW restart survival
   try {
     await chrome.storage.session.set({ [`tcgmizer_cache_${tabId}`]: data });
-    console.log(`[TCGmizer SW] Cached ${data.allListings.length} listings for tab ${tabId}`);
+    console.log(`[TCGmizer SW] Also persisted cache to session storage for tab ${tabId}`);
   } catch (err) {
-    console.error('[TCGmizer SW] Failed to save cache:', err);
+    // Quota exceeded is expected for large carts — in-memory cache still works
+    console.warn(`[TCGmizer SW] Session storage backup failed (in-memory cache still active):`, err.message || err);
   }
 }
 
 async function loadTabCache(tabId) {
+  // Check in-memory first (always preferred)
+  const memCached = tabCacheMap.get(tabId);
+  if (memCached) {
+    console.log(`[TCGmizer SW] Loaded cache from memory for tab ${tabId}`);
+    return memCached;
+  }
+
+  // Fall back to session storage (survives SW restarts for smaller carts)
   try {
     const key = `tcgmizer_cache_${tabId}`;
     const result = await chrome.storage.session.get(key);
-    return result[key] || null;
+    const data = result[key] || null;
+    if (data) {
+      // Restore to in-memory cache
+      tabCacheMap.set(tabId, data);
+      console.log(`[TCGmizer SW] Restored cache from session storage for tab ${tabId}`);
+    }
+    return data;
   } catch (err) {
     console.error('[TCGmizer SW] Failed to load cache:', err);
     return null;

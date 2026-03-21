@@ -1,7 +1,10 @@
 // TCGPlayer-specific constants
 export const TCGPLAYER_MIN_ORDER_PER_SELLER = 1.00; // $1 minimum per seller
-export const DEFAULT_FETCH_DELAY_MS = 600;
+export const TCGPLAYER_DIRECT_SHIPPING_COST = 3.99;
+export const TCGPLAYER_DIRECT_FREE_SHIPPING_THRESHOLD = 50.00;
+export const DEFAULT_FETCH_DELAY_MS = 100;
 export const DEFAULT_MAX_LISTINGS_PER_CARD = 50;
+export const DEFAULT_FETCH_CONCURRENCY = 5;
 export const MAX_ALTERNATIVE_PRINTINGS = 5; // max alt printings to fetch per card name
 export const DEFAULT_TOP_K_LISTINGS = 25; // kept for ILP after pruning
 export const DEFAULT_SOLVER_TIMEOUT_S = 30;

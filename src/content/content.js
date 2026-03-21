@@ -16,6 +16,17 @@ import { readCart } from './cart-reader.js';
 import { applyOptimizedCart, saveCartState } from './cart-modifier.js';
 import { injectUI, onStartClick, showPanel, showProgress, showConfig, showResults, showMultiResults, showError } from './results-ui.js';
 
+// Guard against duplicate injection (can happen if content script is injected both
+// declaratively via manifest and programmatically for SPA navigations)
+if (window.__tcgmizerContentLoaded) {
+  console.log('[TCGmizer] Content script already loaded, skipping duplicate injection.');
+} else {
+  window.__tcgmizerContentLoaded = true;
+  __tcgmizerInit();
+}
+
+function __tcgmizerInit() {
+
 // Initialize UI (hidden until toggled via popup)
 injectUI();
 
@@ -155,6 +166,10 @@ function handleSolveWithConfig(config) {
 // Listen for messages from the background service worker and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
+    case 'PING':
+      sendResponse({ ok: true });
+      return false;
+
     case MSG.TOGGLE_PANEL: {
       const panel = document.getElementById('tcgmizer-panel');
       if (panel) {
@@ -238,3 +253,5 @@ async function handleApply(result) {
 }
 
 console.log('[TCGmizer] Content script loaded on cart page.');
+
+} // end __tcgmizerInit

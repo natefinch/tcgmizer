@@ -799,7 +799,7 @@ No explicit rate limits were observed, but the extension uses conservative delay
 
 | Operation | Delay |
 |-----------|-------|
-| Between listing fetches per product | 600ms |
+| Between listing fetches per product | 100ms (5 concurrent) |
 | Between product name searches | 200ms |
 | Between shipping info batches | 200ms |
 | Between cart add requests | 50ms |

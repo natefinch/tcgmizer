@@ -34,7 +34,9 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 - **Filter by language and condition** — choose which languages and conditions are acceptable before solving.
 - **Max vendors** — optionally cap the number of sellers to reduce the number of packages you receive.
 - **Minimize vendors mode** — solves at multiple vendor counts and shows you the price/convenience tradeoff so you can choose.
+- **Vendor ban list** — search for sellers by name and add them to a persistent ban list via the Settings page. When optimizing, check "Exclude banned vendors" to automatically remove their listings from consideration. The ban list syncs across devices via Chrome storage.
 - **Free shipping awareness** — knows each seller's free shipping threshold and factors it into the optimization. Sometimes spending slightly more at one seller triggers free shipping and saves money overall.
+- **Fast concurrent fetching** — fetches listings for multiple cards in parallel (5 at a time by default) and deduplicates requests for the same product, dramatically reducing wait times for large carts.
 - **Custom listing support** — handles seller-uploaded custom listings (the ones with their own photos) alongside standard listings.
 - **One-click apply** — replaces your cart with the optimized version. If any item is sold out, it automatically falls back to the next cheapest option.
 - **Runs entirely in your browser** — no external servers, no accounts, no data collection. Everything happens locally using TCGPlayer's own public APIs.

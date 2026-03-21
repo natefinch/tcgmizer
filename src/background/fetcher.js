@@ -1,59 +1,119 @@
-import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, LISTINGS_PER_PAGE } from '../shared/constants.js';
+import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, DEFAULT_FETCH_CONCURRENCY, LISTINGS_PER_PAGE, MAX_ALTERNATIVE_PRINTINGS } from '../shared/constants.js';
 
 const SEARCH_API_BASE = 'https://mp-search-api.tcgplayer.com';
 const ROOT_API_BASE = 'https://mpapi.tcgplayer.com';
 
 /**
  * Fetches listings for a list of card product IDs from TCGPlayer's internal APIs.
+ * Uses concurrent requests with a sliding-window concurrency limit for speed.
+ * Deduplicates requests for the same productId.
  *
  * @param {Array<{productId: number, slotId: string, cardName: string}>} cards
  * @param {Object} [options]
- * @param {number} [options.delayMs] - Delay between requests (default: 600ms)
+ * @param {number} [options.delayMs] - Delay between launching requests (default: 100ms)
+ * @param {number} [options.concurrency] - Max concurrent requests (default: 5)
  * @param {number} [options.maxListingsPerCard] - Max listings to fetch per card (default: 50)
  * @param {function} [options.onProgress] - Progress callback: ({ current, total, cardName })
  * @returns {Promise<{ listings: Array<Listing>, sellers: Object<string, SellerInfo> }>}
  */
 export async function fetchAllListings(cards, options = {}) {
-  const delayMs = options.delayMs || DEFAULT_FETCH_DELAY_MS;
+  const delayMs = options.delayMs ?? DEFAULT_FETCH_DELAY_MS;
+  const concurrency = options.concurrency || DEFAULT_FETCH_CONCURRENCY;
   const maxListings = options.maxListingsPerCard || DEFAULT_MAX_LISTINGS_PER_CARD;
   const onProgress = options.onProgress || (() => {});
 
   const allListings = [];
   const sellersMap = {}; // sellerKey → SellerInfo
 
-  for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
-    onProgress({ current: i + 1, total: cards.length, cardName: card.cardName });
+  // Deduplicate: group cards by productId so we only fetch each product once
+  const productGroups = new Map(); // productId → { cardName, slotIds[] }
+  for (const card of cards) {
+    if (!productGroups.has(card.productId)) {
+      productGroups.set(card.productId, {
+        productId: card.productId,
+        cardName: card.cardName,
+        slotIds: [],
+      });
+    }
+    productGroups.get(card.productId).slotIds.push(card.slotId);
+  }
 
+  const uniqueProducts = Array.from(productGroups.values());
+  let completedCount = 0;
+
+  /**
+   * Fetch listings for one product and collect results.
+   */
+  async function fetchOne(product) {
     try {
-      const cardListings = await fetchListingsForProduct(card.productId, card.slotId, maxListings);
-
-      for (const listing of cardListings) {
-        allListings.push(listing);
-
-        // Track seller info (keyed by sellerKey)
-        if (!sellersMap[listing.sellerId]) {
-          sellersMap[listing.sellerId] = {
-            sellerName: listing.sellerName,
-            sellerKey: listing.sellerKey,
-            sellerNumericId: listing.sellerNumericId,
-            shippingCost: listing.shippingCost,
-            freeShippingThreshold: null, // populated later from shipping API
-          };
-        }
-        // Use max shipping cost for the seller
-        const sellerInfo = sellersMap[listing.sellerId];
-        if (listing.shippingCost > sellerInfo.shippingCost) {
-          sellerInfo.shippingCost = listing.shippingCost;
-        }
-      }
+      const cardListings = await fetchListingsForProduct(
+        product.productId, product.slotIds[0], maxListings
+      );
+      return { product, cardListings, error: null };
     } catch (err) {
-      console.warn(`[TCGmizer] Failed to fetch listings for ${card.cardName} (product ${card.productId}):`, err);
+      return { product, cardListings: [], error: err };
+    }
+  }
+
+  /**
+   * Process the result of a single product fetch.
+   */
+  function processResult({ product, cardListings, error }) {
+    completedCount++;
+    onProgress({ current: completedCount, total: uniqueProducts.length, cardName: product.cardName });
+
+    if (error) {
+      console.warn(`[TCGmizer] Failed to fetch listings for ${product.cardName} (product ${product.productId}):`, error);
+      return;
     }
 
-    // Rate limit delay (skip after last card)
-    if (i < cards.length - 1) {
-      await sleep(delayMs);
+    for (const listing of cardListings) {
+      allListings.push(listing);
+
+      // Track seller info (keyed by sellerKey)
+      if (!sellersMap[listing.sellerId]) {
+        sellersMap[listing.sellerId] = {
+          sellerName: listing.sellerName,
+          sellerKey: listing.sellerKey,
+          sellerNumericId: listing.sellerNumericId,
+          shippingCost: listing.shippingCost,
+          freeShippingThreshold: null, // populated later from shipping API
+        };
+      }
+      // Use max shipping cost for the seller
+      const sellerInfo = sellersMap[listing.sellerId];
+      if (listing.shippingCost > sellerInfo.shippingCost) {
+        sellerInfo.shippingCost = listing.shippingCost;
+      }
+    }
+  }
+
+  // Sliding-window concurrent fetcher
+  if (uniqueProducts.length > 0) {
+    const queue = [...uniqueProducts];
+    const inflight = new Set();
+
+    while (queue.length > 0 || inflight.size > 0) {
+      // Launch requests up to the concurrency limit
+      while (queue.length > 0 && inflight.size < concurrency) {
+        const product = queue.shift();
+        const promise = (async () => {
+          // Small stagger delay to avoid burst of simultaneous requests
+          if (inflight.size > 0) await sleep(delayMs);
+          return fetchOne(product);
+        })();
+        // Tag the promise so we can remove it from inflight when done
+        const tracked = promise.then(result => {
+          inflight.delete(tracked);
+          processResult(result);
+        });
+        inflight.add(tracked);
+      }
+
+      // Wait for at least one to complete before launching more
+      if (inflight.size > 0) {
+        await Promise.race(inflight);
+      }
     }
   }
 
@@ -166,6 +226,7 @@ async function fetchListingsForProduct(productId, slotId, maxListings) {
           sellerRating: entry.sellerRating || null,
           sellerSales: entry.sellerSales || null,
           directSeller: entry.directSeller || false,
+          directListing: entry.directListing || false,
           goldSeller: entry.goldSeller || false,
           verifiedSeller: entry.verifiedSeller || false,
           listingType: entry.listingType || 'standard',
@@ -325,6 +386,112 @@ export async function searchProductsByName(cardName) {
     console.warn(`[TCGmizer] Error searching products for "${cardName}":`, err);
     return [];
   }
+}
+
+/**
+ * Search for alternative printings of multiple cards concurrently.
+ * Uses a sliding-window concurrency limit matching the listings fetcher.
+ *
+ * @param {string[]} cardNames - Unique card names to search
+ * @param {Set<number>} seenProducts - Product IDs already known (from cart)
+ * @param {Object} [options]
+ * @param {number} [options.concurrency] - Max concurrent requests (default: DEFAULT_FETCH_CONCURRENCY)
+ * @param {number} [options.delayMs] - Stagger delay between requests (default: DEFAULT_FETCH_DELAY_MS)
+ * @param {function} [options.onProgress] - Progress callback: ({ current, total })
+ * @returns {Promise<{ productCards: Array<{productId, cardName}>, allowedProductLines: Set, cardNameToProductIds: Map, productIdToSetName: Map }>}
+ */
+export async function searchAllCardPrintings(cardNames, seenProducts, options = {}) {
+  const concurrency = options.concurrency || DEFAULT_FETCH_CONCURRENCY;
+  const delayMs = options.delayMs ?? DEFAULT_FETCH_DELAY_MS;
+  const onProgress = options.onProgress || (() => {});
+
+  // Collect raw search results concurrently, then process sequentially
+  const searchResults = new Map(); // cardName → printings[]
+  let completedCount = 0;
+
+  async function searchOne(name) {
+    try {
+      const printings = await searchProductsByName(name);
+      return { name, printings, error: null };
+    } catch (err) {
+      return { name, printings: [], error: err };
+    }
+  }
+
+  // Sliding-window concurrent searcher
+  const queue = [...cardNames];
+  const inflight = new Set();
+
+  while (queue.length > 0 || inflight.size > 0) {
+    while (queue.length > 0 && inflight.size < concurrency) {
+      const name = queue.shift();
+      const promise = (async () => {
+        if (inflight.size > 0) await sleep(delayMs);
+        return searchOne(name);
+      })();
+      const tracked = promise.then(result => {
+        inflight.delete(tracked);
+        completedCount++;
+        onProgress({ current: completedCount, total: cardNames.length });
+        if (result.error) {
+          console.warn(`[TCGmizer] Failed to search printings for "${result.name}":`, result.error);
+        }
+        searchResults.set(result.name, result.printings);
+      });
+      inflight.add(tracked);
+    }
+    if (inflight.size > 0) {
+      await Promise.race(inflight);
+    }
+  }
+
+  // Process results sequentially (same logic as before) to build product lists
+  const allowedProductLines = new Set();
+  const productCards = [];
+  const cardNameToProductIds = new Map();
+  const productIdToSetName = new Map();
+  const localSeen = new Set(seenProducts);
+
+  for (const name of cardNames) {
+    if (!cardNameToProductIds.has(name)) {
+      cardNameToProductIds.set(name, new Set());
+    }
+
+    const printings = searchResults.get(name) || [];
+
+    // Detect product lines from results that match already-known products
+    for (const p of printings) {
+      if (localSeen.has(p.productId) && p.productLineId) {
+        allowedProductLines.add(p.productLineId);
+      }
+    }
+
+    // Limit to MAX_ALTERNATIVE_PRINTINGS new products per card
+    let added = 0;
+    for (const p of printings) {
+      // Only include alt printings from the same game/product line as cart items
+      if (allowedProductLines.size > 0 && p.productLineId && !allowedProductLines.has(p.productLineId)) {
+        continue;
+      }
+
+      if (!localSeen.has(p.productId)) {
+        localSeen.add(p.productId);
+        cardNameToProductIds.get(name).add(p.productId);
+        productCards.push({ productId: p.productId, cardName: name });
+        if (p.setName) productIdToSetName.set(p.productId, p.setName);
+        added++;
+        if (added >= MAX_ALTERNATIVE_PRINTINGS) break;
+      } else {
+        // Already have this product, but still record the set name
+        cardNameToProductIds.get(name).add(p.productId);
+        if (p.setName && !productIdToSetName.has(p.productId)) {
+          productIdToSetName.set(p.productId, p.setName);
+        }
+      }
+    }
+  }
+
+  return { productCards, allowedProductLines, cardNameToProductIds, productIdToSetName };
 }
 
 function sleep(ms) {
