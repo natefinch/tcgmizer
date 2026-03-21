@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TCGmizer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Optimizes your TCGPlayer cart to minimize total cost including shipping, using integer linear programming.",
   "permissions": [
     "activeTab",
@@ -27,8 +27,12 @@
         "https://www.tcgplayer.com/cart*",
         "https://tcgplayer.com/cart*"
       ],
-      "js": ["dist/content.js"],
-      "css": ["src/content/results-ui.css"],
+      "js": [
+        "dist/content.js"
+      ],
+      "css": [
+        "src/content/results-ui.css"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -48,8 +52,12 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["dist/highs.wasm"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "dist/highs.wasm"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
