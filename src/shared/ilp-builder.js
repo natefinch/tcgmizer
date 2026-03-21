@@ -12,11 +12,13 @@ import { TCGPLAYER_MIN_ORDER_PER_SELLER, DEFAULT_TOP_K_LISTINGS } from './consta
  * @param {Object} [params.options]
  * @param {number} [params.options.topK] - Max listings to keep per card slot (default: 25)
  * @param {number} [params.options.maxSellers] - Max number of sellers to use (null = unlimited)
+ * @param {number} [params.options.maxCuts] - Max cards to skip/cut (0 = none allowed)
  * @returns {{ lp: string, variableMap: Object }} LP string and mapping from variable names to listing/seller info
  */
 export function buildLP({ cardSlots, sellers, listings, options = {} }) {
   const topK = options.topK || DEFAULT_TOP_K_LISTINGS;
   const maxSellers = options.maxSellers || null;
+  const maxCuts = options.maxCuts || 0;
 
   // Group listings by slotId and prune to top-K cheapest (by price, since shipping is per-seller)
   const listingsBySlot = new Map();
@@ -65,6 +67,7 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
     x: {}, // varName → { slotId, listing }
     y: {}, // varName → { sellerId }
     z: {}, // varName → { sellerId }
+    skip: {}, // varName → { cardName } (only when maxCuts > 0)
   };
 
   // Build objective terms
@@ -105,6 +108,23 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
     }
 
     xVarsBySlot.set(slot.slotId, slotVars);
+  }
+
+  // Build skip variables (one per unique card name, when maxCuts > 0)
+  // skip_c{i} = 1 means all slots for that card are skipped (not purchased)
+  const skipVars = []; // [varName]
+  const cardNameToSkipVar = new Map(); // cardName → varName
+  if (maxCuts > 0) {
+    const uniqueCardNames = [...new Set(cardSlots.map(s => s.cardName))];
+    for (let ci = 0; ci < uniqueCardNames.length; ci++) {
+      const cardName = uniqueCardNames[ci];
+      const varName = `skip_c${ci}`;
+      skipVars.push(varName);
+      cardNameToSkipVar.set(cardName, varName);
+      variableMap.skip[varName] = { cardName };
+      // Large penalty to discourage cutting unless needed for vendor feasibility
+      objTerms.push(`10000 ${varName}`);
+    }
   }
 
   // y variable terms (shipping costs)
@@ -157,10 +177,16 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
   lines.push('');
   lines.push('Subject To');
 
-  // Constraint 1: Coverage — each slot assigned exactly one listing
+  // Constraint 1: Coverage — each slot assigned exactly one listing (or skipped)
   for (const slot of cardSlots) {
     const vars = xVarsBySlot.get(slot.slotId);
-    pushExpressionLines(lines, `cover_${slot.slotId}`, vars.join(' + '), '= 1');
+    const skipVar = cardNameToSkipVar.get(slot.cardName);
+    if (skipVar) {
+      // sum(x) + skip = 1: either buy one listing or skip the card
+      pushExpressionLines(lines, `cover_${slot.slotId}`, vars.join(' + ') + ' + ' + skipVar, '= 1');
+    } else {
+      pushExpressionLines(lines, `cover_${slot.slotId}`, vars.join(' + '), '= 1');
+    }
   }
 
   // Constraint 2: Seller linking — x_{s,l} <= y_{seller}
@@ -220,12 +246,18 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
     pushExpressionLines(lines, 'maxsellers', yVars.join(' + '), `<= ${maxSellers}`);
   }
 
+  // Constraint 7: Maximum number of card cuts (optional)
+  if (maxCuts > 0 && skipVars.length > 0) {
+    pushExpressionLines(lines, 'maxcuts', skipVars.join(' + '), `<= ${maxCuts}`);
+  }
+
   lines.push('');
   lines.push('Binary');
   const allBinaryVars = [
     ...Object.keys(variableMap.x),
     ...yVars,
     ...zVars,
+    ...skipVars,
   ];
   // Write binary variables in groups to avoid very long lines
   // (some LP readers have internal line-length limits)

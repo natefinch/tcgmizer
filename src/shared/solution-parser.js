@@ -169,6 +169,19 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
   const totalCost = roundCents(totalItemCost + totalShipping);
   const savings = roundCents(currentCartTotal - totalCost);
 
+  // Parse skip variables — which cards were cut
+  const cutCards = [];
+  if (variableMap.skip) {
+    for (const [varName, info] of Object.entries(variableMap.skip)) {
+      const col = columns[varName];
+      if (!col) continue;
+      const val = Math.round(col.Primal);
+      if (val === 1) {
+        cutCards.push(info.cardName);
+      }
+    }
+  }
+
   return {
     success: true,
     status: 'Optimal',
@@ -181,6 +194,8 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
     savings,
     currentCartTotal: roundCents(currentCartTotal),
     warnings,
+    cutCards: cutCards.length > 0 ? cutCards : undefined,
+    originalItemCount: cutCards.length > 0 ? cardSlots.length : undefined,
   };
 }
 

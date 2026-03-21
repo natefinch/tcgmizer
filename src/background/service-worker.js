@@ -330,6 +330,9 @@ async function runFetchPhase(tabId, cartData) {
     });
 
     // Remap listings: for each slot, include listings from ALL printings of the same card
+    sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
+      message: 'Processing listings...',
+    });
     const allListings = [];
     for (const slot of cardSlots) {
       const allowedProducts = cardNameToProductIds.get(slot.cardName) || new Set([slot.productId]);
@@ -617,8 +620,11 @@ async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentC
 
 /**
  * Multi-solve: find the cheapest price for every feasible vendor count.
+ * When maxCuts > 0, also tries removing combinations of cards to see if
+ * fewer vendors become feasible.
  */
 async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config, fallbackMap) {
+  const maxCuts = config.maxCuts || 0;
   const results = [];
 
   // First: solve with no vendor limit (or user's max if set) to get baseline
@@ -638,7 +644,8 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
 
   console.log(`[TCGmizer SW] Baseline: ${currentVendors} vendors, $${baseline.totalCost}`);
 
-  // Now try with fewer vendors until infeasible
+  // Try reducing vendors without any cuts first
+  let minFeasibleVendors = currentVendors;
   for (let n = currentVendors - 1; n >= 1; n--) {
     sendProgress(tabId, STAGE.SOLVING, {
       message: `Trying ${n} vendor${n !== 1 ? 's' : ''}...`,
@@ -652,16 +659,50 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
       break;
     }
 
+    minFeasibleVendors = n;
     // Only add if it actually uses fewer vendors (solver might use fewer than max)
-    const isDuplicate = results.some(r => r.sellerCount === result.sellerCount);
+    const isDuplicate = results.some(r => r.sellerCount === result.sellerCount && !r.cutCards);
     if (!isDuplicate) {
       results.push(result);
       console.log(`[TCGmizer SW] ${n} vendors max → ${result.sellerCount} vendors, $${result.totalCost}`);
     }
   }
 
-  // Sort by vendor count ascending
-  results.sort((a, b) => a.sellerCount - b.sellerCount);
+  // Card-cutting: use ILP skip variables to find solutions with fewer vendors
+  if (maxCuts > 0 && minFeasibleVendors > 1) {
+    console.log(`[TCGmizer SW] Trying card cuts via ILP (max ${maxCuts}) to reduce below ${minFeasibleVendors} vendors`);
+
+    for (let n = minFeasibleVendors - 1; n >= 1; n--) {
+      sendProgress(tabId, STAGE.SOLVING, {
+        message: `Trying ${n} vendor${n !== 1 ? 's' : ''} with up to ${maxCuts} card cut${maxCuts !== 1 ? 's' : ''}...`,
+      });
+
+      const result = await solveSingleWithCuts(tabId, cardSlots, sellers, filteredListings, currentCartTotal, n, maxCuts);
+      if (!result || !result.success) {
+        console.log(`[TCGmizer SW] Infeasible at ${n} vendors even with ${maxCuts} cuts, stopping`);
+        break;
+      }
+
+      // Only include if it actually cut cards (no-cut solutions already found above)
+      // and the vendor count is genuinely new
+      if (result.cutCards && result.cutCards.length > 0) {
+        const isDuplicate = results.some(r =>
+          r.sellerCount === result.sellerCount &&
+          (r.cutCards?.length || 0) === result.cutCards.length
+        );
+        if (!isDuplicate) {
+          results.push(result);
+          console.log(`[TCGmizer SW] ${n} vendors with cuts [${result.cutCards.join(', ')}] → $${result.totalCost}`);
+        }
+      }
+    }
+  }
+
+  // Sort by vendor count ascending, then by cut count ascending
+  results.sort((a, b) => {
+    if (a.sellerCount !== b.sellerCount) return a.sellerCount - b.sellerCount;
+    return (a.cutCards?.length || 0) - (b.cutCards?.length || 0);
+  });
 
   // Filter out dominated results: if a result with fewer vendors has the
   // same or lower displayed price, remove the higher-vendor option.
@@ -693,6 +734,42 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
     type: MSG.OPTIMIZATION_MULTI_RESULT,
     results,
   });
+}
+
+/**
+ * Run a single ILP solve with card-cutting (skip) variables enabled.
+ * The solver decides which cards to cut to achieve the vendor count.
+ */
+async function solveSingleWithCuts(tabId, cardSlots, sellers, filteredListings, currentCartTotal, maxSellers, maxCuts) {
+  let lpResult;
+  try {
+    lpResult = buildLP({
+      cardSlots,
+      sellers,
+      listings: filteredListings,
+      options: { maxSellers, maxCuts },
+    });
+  } catch (err) {
+    console.error('[TCGmizer SW] buildLP (with cuts) error:', err);
+    return null;
+  }
+
+  const { lp, variableMap } = lpResult;
+
+  let solution;
+  try {
+    solution = await solveILP(lp, DEFAULT_SOLVER_TIMEOUT_S);
+  } catch (solveErr) {
+    console.error('[TCGmizer SW] Solver (with cuts) error:', solveErr);
+    return null;
+  }
+
+  if (solution.Status === 'Infeasible') {
+    return null;
+  }
+
+  const result = parseSolution(solution, variableMap, cardSlots, sellers, currentCartTotal);
+  return result;
 }
 
 /**

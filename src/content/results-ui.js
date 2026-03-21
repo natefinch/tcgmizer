@@ -127,8 +127,10 @@ export function showProgress(message, current, total) {
   const bar = panel.querySelector('.tcgmizer-progress-bar');
   if (current != null && total != null && total > 0) {
     bar.style.width = `${Math.round((current / total) * 100)}%`;
+    bar.classList.remove('tcgmizer-progress-bar-indeterminate');
   } else {
-    bar.style.width = '0%';
+    bar.style.width = '100%';
+    bar.classList.add('tcgmizer-progress-bar-indeterminate');
   }
 }
 
@@ -206,6 +208,18 @@ export function showConfig(options, onSolve) {
       <label class="tcgmizer-checkbox-label tcgmizer-minimize-vendors-label">
         <input type="checkbox" class="tcgmizer-minimize-vendors" /> Minimize Number of Vendors
       </label>
+      <div class="tcgmizer-max-cuts-row" style="margin-top:6px;margin-left:22px;display:flex;align-items:center;gap:6px;">
+        <label class="tcgmizer-config-hint" style="margin:0;white-space:nowrap;">Try cutting up to</label>
+        <select class="tcgmizer-max-cuts" disabled style="width:48px;padding:2px 4px;border-radius:4px;border:1px solid #ccc;font-size:13px;">
+          <option value="0">0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+        <span class="tcgmizer-config-hint" style="margin:0;">cards to reduce vendors</span>
+      </div>
     </div>
 
     <div class="tcgmizer-config-section tcgmizer-ban-section">
@@ -243,6 +257,10 @@ export function showConfig(options, onSolve) {
     // Restore toggles
     if (saved.minimizeVendors != null) {
       configDiv.querySelector('.tcgmizer-minimize-vendors').checked = saved.minimizeVendors;
+      configDiv.querySelector('.tcgmizer-max-cuts').disabled = !saved.minimizeVendors;
+    }
+    if (saved.maxCuts != null) {
+      configDiv.querySelector('.tcgmizer-max-cuts').value = String(saved.maxCuts);
     }
     if (saved.exactPrintings != null) {
       configDiv.querySelector('.tcgmizer-exact-printings').checked = saved.exactPrintings;
@@ -299,11 +317,17 @@ export function showConfig(options, onSolve) {
     });
   });
 
+  // Enable/disable max cuts picker based on minimize vendors checkbox
+  configDiv.querySelector('.tcgmizer-minimize-vendors').addEventListener('change', (e) => {
+    configDiv.querySelector('.tcgmizer-max-cuts').disabled = !e.target.checked;
+  });
+
   // Run Optimizer button
   configDiv.querySelector('.tcgmizer-run-solver').addEventListener('click', () => {
     const selectedLangs = [...configDiv.querySelectorAll('.tcgmizer-lang-options input:checked')].map(cb => cb.value);
     const selectedConds = [...configDiv.querySelectorAll('.tcgmizer-cond-options input:checked')].map(cb => cb.value);
     const minimizeVendors = configDiv.querySelector('.tcgmizer-minimize-vendors').checked;
+    const maxCuts = parseInt(configDiv.querySelector('.tcgmizer-max-cuts').value, 10) || 0;
     const exactPrintings = configDiv.querySelector('.tcgmizer-exact-printings').checked;
 
     const excludeBannedCheckbox = configDiv.querySelector('.tcgmizer-exclude-banned');
@@ -324,6 +348,7 @@ export function showConfig(options, onSolve) {
         languages: selectedLangs,
         conditions: selectedConds,
         minimizeVendors,
+        maxCuts,
         exactPrintings,
       },
     });
@@ -332,6 +357,7 @@ export function showConfig(options, onSolve) {
       languages: selectedLangs.length === options.languages.length ? [] : selectedLangs,
       conditions: selectedConds.length === options.conditions.length ? [] : selectedConds,
       minimizeVendors,
+      maxCuts: minimizeVendors ? maxCuts : 0,
       exactPrintings,
       bannedSellerKeys,
     };
@@ -455,6 +481,11 @@ export function showMultiResults(results, onApply) {
     const extraText = extraCost > 0.005 ? `+$${extraCost.toFixed(2)}` : 'Cheapest';
     const extraClass = extraCost > 0.005 ? '' : 'tcgmizer-cheapest-tag';
 
+    // Show cut cards indicator if any
+    const cutInfo = r.cutCards && r.cutCards.length > 0
+      ? `<div class="tcgmizer-cut-info" title="${escapeHtml(r.cutCards.join(' · '))}">✂️ Cut ${r.cutCards.length} card${r.cutCards.length !== 1 ? 's' : ''}: ${escapeHtml(r.cutCards.join(' · '))}</div>`
+      : '';
+
     // Build the expandable detail (seller breakdown)
     let detailHtml = '';
     for (const seller of r.sellers) {
@@ -470,6 +501,7 @@ export function showMultiResults(results, onApply) {
           <button class="tcgmizer-btn tcgmizer-btn-primary tcgmizer-compare-apply">Apply</button>
           <span class="tcgmizer-compare-toggle">▶</span>
         </div>
+        ${cutInfo}
         <div class="tcgmizer-compare-detail" style="display:none">
           <div class="tcgmizer-summary-row tcgmizer-summary-detail" style="margin-bottom:8px">
             Items: $${r.totalItemCost.toFixed(2)} · Shipping: $${r.totalShipping.toFixed(2)}
