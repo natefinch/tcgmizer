@@ -1,4 +1,4 @@
-import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, DEFAULT_FETCH_CONCURRENCY, LISTINGS_PER_PAGE, MAX_ALTERNATIVE_PRINTINGS, SEARCH_RESULTS_PER_PAGE } from '../shared/constants.js';
+import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, DEFAULT_FETCH_CONCURRENCY, LISTINGS_PER_PAGE, MAX_ALTERNATIVE_PRINTINGS } from '../shared/constants.js';
 
 const SEARCH_API_BASE = 'https://mp-search-api.tcgplayer.com';
 const ROOT_API_BASE = 'https://mpapi.tcgplayer.com';
@@ -14,6 +14,7 @@ const ROOT_API_BASE = 'https://mpapi.tcgplayer.com';
  * @param {number} [options.concurrency] - Max concurrent requests (default: 5)
  * @param {number} [options.maxListingsPerCard] - Max listings to fetch per card (default: 50)
  * @param {function} [options.onProgress] - Progress callback: ({ current, total, cardName })
+ * @param {function} [options.onShippingProgress] - Shipping progress callback: ({ current, total })
  * @returns {Promise<{ listings: Array<Listing>, sellers: Object<string, SellerInfo> }>}
  */
 export async function fetchAllListings(cards, options = {}) {
@@ -21,6 +22,7 @@ export async function fetchAllListings(cards, options = {}) {
   const concurrency = options.concurrency || DEFAULT_FETCH_CONCURRENCY;
   const maxListings = options.maxListingsPerCard || DEFAULT_MAX_LISTINGS_PER_CARD;
   const onProgress = options.onProgress || (() => {});
+  const onShippingProgress = options.onShippingProgress || (() => {});
 
   const allListings = [];
   const sellersMap = {}; // sellerKey → SellerInfo
@@ -121,7 +123,7 @@ export async function fetchAllListings(cards, options = {}) {
   let knownSellerKeys = new Set();
   if (Object.keys(sellersMap).length > 0) {
     try {
-      knownSellerKeys = await fetchSellerShippingInfo(sellersMap);
+      knownSellerKeys = await fetchSellerShippingInfo(sellersMap, onShippingProgress);
     } catch (err) {
       console.warn('[TCGmizer] Failed to fetch seller shipping info:', err);
     }
@@ -251,7 +253,7 @@ async function fetchListingsForProduct(productId, slotId, maxListings) {
  * Endpoint: POST /v2/seller/shippinginfo?countryCode=US
  * Body: [{sellerId, largestShippingCategoryId}]
  */
-async function fetchSellerShippingInfo(sellersMap) {
+async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}) {
   const sellerEntries = Object.values(sellersMap).filter(s => s.sellerNumericId);
   const respondedSellerKeys = new Set();
 
@@ -266,7 +268,11 @@ async function fetchSellerShippingInfo(sellersMap) {
 
   // Batch in groups of 50 to avoid too-large requests
   const BATCH_SIZE = 50;
+  const totalBatches = Math.ceil(body.length / BATCH_SIZE);
+  let batchIndex = 0;
   for (let i = 0; i < body.length; i += BATCH_SIZE) {
+    batchIndex++;
+    onShippingProgress({ current: batchIndex, total: totalBatches });
     const batch = body.slice(i, i + BATCH_SIZE);
 
     try {
@@ -320,84 +326,72 @@ async function fetchSellerShippingInfo(sellersMap) {
 
 /**
  * Search for all printings (products) of a card by exact name.
- * Uses the TCGPlayer product search API with the productName term filter
- * (same approach used by the TCGPlayer website's own search page).
- * Paginates through results since the API limits page size to 50.
- * Returns an array of { productId, productName, setName, marketPrice, productLineId, productLineName }.
+ * Uses the TCGPlayer product search API.
+ * Returns an array of { productId, productName, setName }.
  */
 export async function searchProductsByName(cardName) {
-  const allProducts = [];
-  let offset = 0;
-
   try {
-    while (true) {
-      const response = await fetch(
-        `${SEARCH_API_BASE}/v1/search/request?q=${encodeURIComponent(cardName)}&isList=false`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
+    const response = await fetch(
+      `${SEARCH_API_BASE}/v1/search/request?q=${encodeURIComponent(cardName)}&isList=false`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          algorithm: '',
+          from: 0,
+          size: 100,
+          filters: {
+            term: {
+              productTypeName: ['Cards'],
+            },
+            range: {
+              // Only include products that have listings (market price > 0)
+              marketPrice: { gte: 0.01 },
+            },
+            match: {},
           },
-          body: JSON.stringify({
-            algorithm: '',
-            from: offset,
-            size: SEARCH_RESULTS_PER_PAGE,
-            filters: {
-              term: {
-                productTypeName: ['Cards'],
-                productName: [cardName],
-              },
-              range: {},
-              match: {},
-            },
-            context: {
-              cart: {},
-              shippingCountry: 'US',
-            },
-            sort: {},
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        console.warn(`[TCGmizer] Product search returned ${response.status} for "${cardName}"`);
-        break;
+          context: {
+            cart: {},
+            shippingCountry: 'US',
+          },
+          sort: {},
+        }),
       }
+    );
 
-      const data = await response.json();
-      const results = data?.results?.[0]?.results || [];
-      const totalResults = data?.results?.[0]?.totalResults || 0;
-
-      if (results.length === 0) break;
-
-      // Match exact card name or card name with treatment suffix like " (Extended Art)"
-      const lowerName = cardName.toLowerCase().trim();
-      for (const p of results) {
-        const pName = (p.productName || '').toLowerCase().trim();
-        if (pName !== lowerName && !pName.startsWith(lowerName + ' (')) continue;
-        // Filter out products with no totalListings or 0 listings
-        if (p.totalListings != null && p.totalListings === 0) continue;
-
-        allProducts.push({
-          productId: p.productId,
-          productName: p.productName,
-          setName: p.groupName || p.setName || '',
-          marketPrice: p.marketPrice || p.lowestPrice || 0,
-          productLineId: p.productLineId || null,
-          productLineName: p.productLineName || '',
-        });
-      }
-
-      // If we got fewer than a full page or reached totalResults, we're done
-      if (results.length < SEARCH_RESULTS_PER_PAGE || offset + results.length >= totalResults) break;
-      offset += SEARCH_RESULTS_PER_PAGE;
+    if (!response.ok) {
+      console.warn(`[TCGmizer] Product search returned ${response.status} for "${cardName}"`);
+      return [];
     }
+
+    const data = await response.json();
+    const results = data?.results?.[0]?.results || [];
+
+    // Match exact card name or card name with treatment suffix like " (Extended Art)"
+    const lowerName = cardName.toLowerCase().trim();
+    return results
+      .filter(p => {
+        const pName = (p.productName || '').toLowerCase().trim();
+        if (pName !== lowerName && !pName.startsWith(lowerName + ' (')) return false;
+        // Filter out products with no totalListings or 0 listings
+        if (p.totalListings != null && p.totalListings === 0) return false;
+        return true;
+      })
+      .map(p => ({
+        productId: p.productId,
+        productName: p.productName,
+        setName: p.groupName || p.setName || '',
+        marketPrice: p.marketPrice || p.lowestPrice || 0,
+        productLineId: p.productLineId || null,
+        productLineName: p.productLineName || '',
+      }));
   } catch (err) {
     console.warn(`[TCGmizer] Error searching products for "${cardName}":`, err);
+    return [];
   }
-
-  return allProducts;
 }
 
 /**

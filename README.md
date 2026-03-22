@@ -2,23 +2,18 @@
 
 A Chrome extension that optimizes your [TCGPlayer](https://www.tcgplayer.com) shopping cart to find the mathematically cheapest combination of sellers, including shipping costs.
 
-## Installation
-
-1. Download and unzip the latest [release](https://github.com/natefinch/tcgmizer/releases).
-2. Open Chrome and go to `chrome://extensions`.
-3. Enable **Developer mode** (toggle in the top right).
-4. Click **Load unpacked** and select the repository folder.
-5. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
-
-
 ### Filter the way you like
-<img width="957" height="758" alt="image" src="https://github.com/user-attachments/assets/7f5f73bb-9bb0-483c-bac1-673202847b6a" />
+<img width="1203" height="828" alt="image" src="https://github.com/user-attachments/assets/e0b832ce-2ac3-45e0-a9a0-3c7f5d6b7c0f" />
 
 ### Save money and time
-<img width="943" height="811" alt="image" src="https://github.com/user-attachments/assets/0825d071-2bb4-4dfa-9ed2-8758c4d0a85a" />
+<img width="1180" height="887" alt="image" src="https://github.com/user-attachments/assets/ca67c014-27bc-4eaa-87dd-b2ed41de36e3" />
 
 
-## Smart Optimization
+## The Problem
+
+When buying trading cards on TCGPlayer, each seller charges their own shipping fee. A cart with cards spread across many sellers can rack up significant shipping costs. Manually figuring out which sellers to buy from — balancing item prices, shipping fees, and free shipping thresholds — is tedious and nearly impossible to do optimally by hand.
+
+## The Solution
 
 TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer_programming) (ILP) to find the true mathematical optimum. It reads your cart, fetches current listings and shipping rates from TCGPlayer, builds a cost-minimization model, solves it, and can apply the optimized cart with one click.
 
@@ -37,16 +32,35 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 - **Mathematically optimal** — not a heuristic or approximation. Uses the [HiGHS](https://highs.dev/) solver (the same engine used in academic and industrial optimization) running entirely in your browser via WebAssembly.
 - **Alternative printings** — automatically searches for cheaper printings of each card across all sets. Toggle "Exact printings only" if you want specific versions.
 - **Filter by language and condition** — choose which languages and conditions are acceptable before solving.
+- **Max vendors** — optionally cap the number of sellers to reduce the number of packages you receive.
 - **Minimize vendors mode** — solves at multiple vendor counts and shows you the price/convenience tradeoff so you can choose.
-- **Vendor ban list** — search for sellers by name and add them to a persistent ban list via the Settings page. When optimizing, check "Exclude banned vendors" to automatically remove their listings from consideration. The ban list syncs across devices via Chrome storage.
 - **Free shipping awareness** — knows each seller's free shipping threshold and factors it into the optimization. Sometimes spending slightly more at one seller triggers free shipping and saves money overall.
+- **Fast concurrent fetching** — fetches listings for multiple cards in parallel (5 at a time by default) and deduplicates requests for the same product, dramatically reducing wait times for large carts.
+- **Custom listing support** — handles seller-uploaded custom listings (the ones with their own photos) alongside standard listings.
 - **One-click apply** — replaces your cart with the optimized version. If any item is sold out, it automatically falls back to the next cheapest option.
 - **Runs entirely in your browser** — no external servers, no accounts, no data collection. Everything happens locally using TCGPlayer's own public APIs.
 
+## Installation
 
-## Building for Development
+1. Clone this repository.
+2. Install dependencies and build:
+   ```
+   npm install
+   npm run build
+   ```
+3. Open Chrome and go to `chrome://extensions`.
+4. Enable **Developer mode** (toggle in the top right).
+5. Click **Load unpacked** and select the repository folder.
+6. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
+
+## Building
 
 ```
 npm run build        # One-time build
 npm run watch        # Rebuild on changes
 ```
+
+## Requirements
+
+- Google Chrome (Manifest V3)
+- A TCGPlayer cart with items in it
