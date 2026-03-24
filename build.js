@@ -6,6 +6,11 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const isWatch = process.argv.includes('--watch');
+const isDebug = process.argv.includes('--debug');
+
+if (isDebug) {
+  console.log('Building with DEBUG_MODE enabled');
+}
 
 // Common build options
 const commonOptions = {
@@ -13,8 +18,11 @@ const commonOptions = {
   format: 'esm',
   target: 'es2022',
   sourcemap: true,
-  minify: !isWatch,
+  minify: !isWatch && !isDebug,
   logLevel: 'info',
+  define: {
+    'DEBUG_MODE': isDebug ? 'true' : 'false',
+  },
 };
 
 async function build() {

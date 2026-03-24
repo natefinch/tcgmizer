@@ -21,7 +21,8 @@ A detailed walkthrough of every component in the TCGmizer Chrome extension: arch
    - 4.9 [Constants](#49-constants)
    - 4.10 [Popup](#410-popup)
    - 4.11 [Options Page (Settings)](#411-options-page-settings)
-   - 4.12 [Offscreen Document (Legacy)](#412-offscreen-document-legacy)
+   - 4.12 [Seller Cache](#412-seller-cache)
+   - 4.13 [Offscreen Document (Legacy)](#413-offscreen-document-legacy)
 5. [End-to-End Data Flow](#end-to-end-data-flow)
 6. [Message Protocol](#message-protocol)
 7. [Caching Strategy](#caching-strategy)
@@ -81,7 +82,7 @@ TCGmizer is a Manifest V3 Chrome extension. It follows Chrome's standard extensi
 |---|---|
 | `activeTab` | Access the current tab when the user interacts with the popup |
 | `scripting` | Programmatically inject content scripts for SPA navigation |
-| `storage` | Persist vendor ban list via `chrome.storage.sync`; per-tab cache via `chrome.storage.session` |
+| `storage` | Persist vendor ban list via `chrome.storage.sync`; per-tab cache via `chrome.storage.session`; seller info cache via `chrome.storage.local` |
 
 ### Host Permissions
 
@@ -130,6 +131,30 @@ Both bundles use ES2022 target, include source maps, and are minified in product
 
 After bundling, the build copies `highs.wasm` and `highs.js` from `node_modules/highs/build/` into `dist/`. It includes a fallback that uses `find` to locate these files if the expected path doesn't exist.
 
+> **Note:** The `dist/highs.js` and `dist/highs.wasm` files checked into the repo are **custom-built** with an 8MB Emscripten stack. They are NOT the files from the `highs` npm package (which ships with a 64KB stack that crashes on large carts). The `build.js` copy step is a fallback for fresh installs; the custom-built files should be committed and take priority. See the [WASM Solver Build](#wasm-solver-build) section below and `scripts/rebuild-highs-wasm.sh` for details.
+
+### WASM Solver Build
+
+The HiGHS WASM solver is compiled from the [`lovasoa/highs-js`](https://github.com/lovasoa/highs-js) wrapper around [ERGO-Code/HiGHS](https://github.com/ERGO-Code/HiGHS) using Emscripten.
+
+**Why a custom build?** The published `highs` npm package (v1.8.0) was compiled with Emscripten's default 64KB stack. Large ILP models (100+ card carts with alternative printings) cause a stack overflow, manifesting as WASM `Aborted()` or `RuntimeError: function signature mismatch` errors. An upstream fix ([PR #43](https://github.com/lovasoa/highs-js/pull/43)) increased the stack to 4MB, but this was merged *after* the v1.8.0 release and has never been published as a new npm version.
+
+We build with an **8MB stack** (`STACK_SIZE=8388608`) using `scripts/rebuild-highs-wasm.sh`, which:
+1. Clones `lovasoa/highs-js` (main branch, with the stack fix)
+2. Patches `build.sh` to set a larger `STACK_SIZE`
+3. Builds inside the `emscripten/emsdk:3.1.51` Docker container
+4. Copies the output `highs.js` and `highs.wasm` into `dist/`
+
+Key Emscripten flags (from upstream `build.sh`):
+- `-O3` — full optimization
+- `-s ALLOW_MEMORY_GROWTH=1` — heap can grow dynamically (no fixed memory ceiling)
+- `-s STACK_SIZE=8388608` — 8MB stack (our override; upstream uses 4MB)
+- `-s MODULARIZE=1` — exports a factory function
+- `-flto` — link-time optimization
+- `--closure 1` — Closure Compiler minification
+
+Prerequisites: Docker (no local emcc or cmake needed).
+
 ### Watch Mode
 
 `npm run watch` passes `--watch` to the build script, which disables minification for faster iterative builds.
@@ -150,6 +175,8 @@ HiGHS is loaded in two steps:
 
 1. **Synchronous:** `importScripts('highs.js')` at the top level loads the Emscripten JS loader. This must be a static string literal per MV3 requirements. It sets `globalThis.Module` to a factory function.
 2. **Async/lazy:** `getHighs()` initializes the WASM module on first use. It calls the factory with a `locateFile` callback that maps `*.wasm` filenames to `chrome.runtime.getURL('dist/highs.wasm')`. The resulting solver instance is cached in the `highs` variable, and concurrent callers share the same `highsLoading` promise.
+
+**WASM crash recovery:** If HiGHS WASM aborts (stack overflow, memory error), the cached `highs` and `highsLoading` references are set to `null`, forcing a full re-initialization on the next solve attempt. This is necessary because the Emscripten module is left in a corrupted state after a WASM trap.
 
 #### SPA Navigation Detection
 
@@ -173,7 +200,7 @@ This is the first phase of optimization, triggered by `MSG.START_OPTIMIZATION`:
 
 4. **Fetch listings.** Calls `fetchAllListings()` for all products (original + alternatives). Uses concurrent requests with deduplication.
 
-5. **Remap listings to slots.** Each slot receives listings from all printings of its card name. Listings are duplicated across slots with unique `listingId`s (e.g., `listing123_slot456`) but retain the original `originalListingId` for inventory constraints.
+5. **Remap listings to slots.** Each slot receives listings from all printings of its card name. Listings are pre-indexed into a `Map<productId, listing[]>` for O(1) lookup per slot (instead of filtering the full listing array per slot). Listings are duplicated across slots with unique `listingId`s (e.g., `listing123_slot456`) but retain the original `originalListingId` for inventory constraints.
 
 6. **Cache results.** Stores `{ cardSlots, allListings, sellers, currentCartTotal }` in the per-tab cache.
 
@@ -197,9 +224,22 @@ Triggered by `MSG.SOLVE_WITH_CONFIG` after the user configures filters:
 
 6. **Send results** via `MSG.OPTIMIZATION_RESULT` (single) or `MSG.OPTIMIZATION_MULTI_RESULT` (multi).
 
-#### `solveSingle()`
+#### `solveSingle()` and Adaptive Retry
 
-Builds the LP via `buildLP()`, solves it via `solveILP()`, and parses the solution via `parseSolution()`. Includes input validation (checking for empty slots) and error logging (including LP string excerpts on failure).
+`solveSingle()` wraps `solveSingleAttempt()` with two layers of resilience for large carts:
+
+**Adaptive topK scaling:** Before solving, the top-K listings per slot (default 25) is reduced based on cart size to keep the ILP model within WASM memory limits:
+- \>75 slots: topK capped at 15
+- \>50 slots: topK capped at 20
+- ≤50 slots: topK stays at 25
+
+**Retry loop on WASM errors:** If HiGHS WASM crashes (detected by checking for `RuntimeError`, `Aborted`, `signature mismatch`, or `out of memory` in the error message), the function:
+1. Resets the HiGHS instance (`highs = null; highsLoading = null`) to clear corrupted state
+2. Returns the sentinel string `'WASM_ERROR'` to the retry loop
+3. The loop reduces topK by 40% (`topK * 0.6`) and retries
+4. Minimum topK is 8; below that, the solve is abandoned with an error message
+
+`solveSingleAttempt()` builds the LP via `buildLP()`, solves it via `solveILP()`, and parses the solution via `parseSolution()`. Includes input validation (checking for empty slots) and error logging (including LP string excerpts on failure).
 
 The `solveILP()` function validates the LP string for required sections (`Minimize`, `Subject To`, `End`) and the absence of `NaN` values before passing it to HiGHS.
 
@@ -248,9 +288,13 @@ Main entry point. Fetches listings for a list of products.
 
 **Seller info collection:** As listings are processed, seller information (name, key, numeric ID, shipping cost) is accumulated in a `sellersMap`. The maximum shipping cost across all listings is used for each seller.
 
-**Shipping info:** After all listings are fetched, calls `fetchSellerShippingInfo()` to get free-shipping thresholds for all sellers.
+**Seller info caching:** Before fetching shipping info, prunes expired entries (older than 6 hours) from the persistent seller cache (`chrome.storage.local`). Sellers with valid cached data have their shipping cost and free-shipping threshold applied directly from the cache, skipping the API call entirely. Only uncached sellers are passed to `fetchSellerShippingInfo()`. After fetching, newly retrieved seller info is stored in the cache with the current timestamp for future optimization runs.
 
-**Ghost seller filtering:** The shipping API is used to detect "ghost sellers"—sellers whose listings appear in the search index but whose storefronts are inactive. If a seller's numeric ID doesn't appear in the shipping API response, their listings are removed. (These sellers cause CAPI-35 errors when attempting to add to cart.)
+**Shipping info:** For uncached sellers, calls `fetchSellerShippingInfo()` to get free-shipping thresholds.
+
+**Progress reporting:** Accepts an optional `onShippingProgress(current, total)` callback so the UI can display shipping fetch progress separately from listing progress.
+
+**Ghost seller filtering:** The shipping API is used to detect "ghost sellers"—sellers whose listings appear in the search index but whose storefronts are inactive. If a seller's numeric ID doesn't appear in the shipping API response (and is not in the seller cache), their listings are removed. (These sellers cause CAPI-35 errors when attempting to add to cart.) Cached sellers are always considered known since they responded to the shipping API in a previous session.
 
 #### `fetchListingsForProduct(productId, slotId, maxListings)`
 
@@ -554,8 +598,9 @@ The $-\text{shipping}_v \cdot z_v$ term subtracts shipping when the free shippin
 1. **Coverage** — each card slot gets exactly one listing:
 $$\sum_l x_{s,l} = 1 \quad \forall s$$
 
-2. **Seller linking** — can only buy from a seller if that seller is "used":
-$$x_{s,l} \leq y_v \quad \forall (s,l) \text{ where listing } l \text{ is from seller } v$$
+2. **Seller linking** — can only buy from a seller if that seller is "used" (aggregated form—one constraint per seller instead of per listing, dramatically reducing LP size for large carts):
+$$\sum_{(s,l) \in v} x_{s,l} \leq N_v \cdot y_v \quad \forall v$$
+where $N_v$ is the number of $x$ variables associated with seller $v$. This is mathematically equivalent to the individual form $x_{s,l} \leq y_v$ for each listing but generates ~80% fewer constraints.
 
 3. **Free shipping threshold** — $z_v = 1$ only if the total spend at seller $v$ meets the threshold:
 $$\sum_{l \in v} \text{price}_l \cdot x_{s,l} \geq \text{threshold}_v \cdot z_v$$
@@ -680,6 +725,7 @@ A minimal 280px-wide popup with two buttons and a status indicator.
    - Status shows "Navigate to TCGPlayer cart"
    - Button is disabled
 4. "Settings" button opens the options page via `chrome.runtime.openOptionsPage()`.
+5. "Clear Seller Cache" button sends `MSG.CLEAR_SELLER_CACHE` to the service worker to wipe all cached seller shipping data. Provides visual feedback ("Clearing..." → "Cache Cleared!") and re-enables after 1.5 seconds.
 
 ---
 
@@ -705,7 +751,52 @@ The ban list is an array of `{ sellerKey, sellerName }` objects stored at the `b
 
 ---
 
-### 4.12 Offscreen Document (Legacy)
+### 4.12 Seller Cache
+
+**File:** `src/background/seller-cache.js`
+
+Manages persistent caching of seller shipping information across browser sessions using `chrome.storage.local`. This avoids re-fetching shipping data from TCGPlayer's API on every optimization run.
+
+#### Cache Entry Format
+
+Each entry is keyed by seller key and stores:
+
+```json
+{
+  "sellerName": "Store Alpha",
+  "sellerKey": "abc123",
+  "sellerNumericId": 12345,
+  "shippingCost": 1.99,
+  "freeShippingThreshold": 5.00,
+  "timestamp": 1711200000000
+}
+```
+
+#### Exported Functions
+
+| Function | Purpose |
+|---|---|
+| `pruneExpiredEntries()` | Loads cache, removes entries older than 6 hours, persists, returns the pruned cache |
+| `getCachedSellers(sellerKeys, cache)` | Pure function — splits an array of seller keys into `{ cached, uncachedKeys }` using a pre-loaded cache object |
+| `cacheSellers(sellerEntries)` | Merges new seller entries into the cache with the current timestamp |
+| `clearSellerCache()` | Removes the entire cache key from `chrome.storage.local` |
+
+#### Integration with Fetcher
+
+`fetchAllListings()` in `fetcher.js` calls these functions in sequence:
+1. `pruneExpiredEntries()` — evict stale data
+2. `getCachedSellers()` — identify which sellers need fresh data
+3. Apply cached shipping info to the sellers map
+4. Call `fetchSellerShippingInfo()` only for uncached sellers
+5. `cacheSellers()` — store newly fetched data
+
+#### Integration with Service Worker
+
+The service worker handles `MSG.CLEAR_SELLER_CACHE` messages (sent from the popup's "Clear Seller Cache" button) by calling `clearSellerCache()`.
+
+---
+
+### 4.13 Offscreen Document (Legacy)
 
 **Files:** `src/offscreen/offscreen.html`, `src/offscreen/solver.js`
 
@@ -800,9 +891,17 @@ All inter-component communication uses `chrome.runtime.sendMessage()` (content �
 | `TOGGLE_PANEL` | — | Show/hide the optimizer panel |
 | `PING` | — | Check if content script is loaded |
 
+### Popup → Service Worker
+
+| Type | Payload | Purpose |
+|---|---|---|
+| `CLEAR_SELLER_CACHE` | — | Clear all cached seller shipping data |
+
 ---
 
 ## Caching Strategy
+
+### Tab Data Cache (Per-Session)
 
 Fetched listing data is cached per-tab to enable re-solving with different filter configurations without re-fetching:
 
@@ -818,6 +917,28 @@ Cache value: `{ cardSlots, allListings, sellers, currentCartTotal }`
 Cleanup: `chrome.tabs.onRemoved` listener removes both in-memory and session storage entries.
 
 **Design rationale:** Large carts can produce tens of thousands of expanded slot-listings. The session storage quota (even with extended access level) may not be sufficient, so the in-memory cache is always the primary store. Session storage is a best-effort backup for surviving service worker restarts.
+
+### Seller Info Cache (Cross-Session)
+
+Seller shipping data (shipping cost, free-shipping thresholds) is cached persistently across browser sessions using `chrome.storage.local`. This avoids redundant shipping API calls when the user runs multiple optimizations, since seller shipping policies rarely change.
+
+| Property | Value |
+|---|---|
+| Storage | `chrome.storage.local` |
+| Key | `tcgmizer_seller_cache` |
+| Entry format | `{ sellerName, sellerKey, sellerNumericId, shippingCost, freeShippingThreshold, timestamp }` |
+| Max age | 6 hours (`CACHE_MAX_AGE_MS`) |
+| Eviction | Expired entries are pruned at the start of each fetch phase |
+| Manual clear | "Clear Seller Cache" button in the popup |
+
+**Lifecycle during an optimization run:**
+
+1. **Prune:** All entries older than 6 hours are deleted from the cache.
+2. **Lookup:** The seller keys from the current optimization are checked against the remaining cache. Cached sellers have their `shippingCost` and `freeShippingThreshold` applied directly.
+3. **Fetch:** Only uncached sellers are sent to the TCGPlayer shipping API (`fetchSellerShippingInfo`).
+4. **Store:** Newly fetched seller data (only sellers that responded — not ghost sellers) is written to the cache with the current timestamp.
+
+**Design rationale:** The shipping API is the second-slowest part of the fetch phase (after listing retrieval). For repeat optimizations — common when experimenting with filter settings or after adding/removing cart items — the vast majority of sellers will already be cached, reducing shipping API calls to near zero. The 6-hour TTL balances freshness against API call reduction.
 
 ---
 
@@ -853,12 +974,18 @@ Cleanup: `chrome.tabs.onRemoved` listener removes both in-memory and session sto
 |---|---|
 | **API Fetching** | Sliding-window concurrency (5 concurrent, 100ms stagger) prevents rate limiting while maximizing throughput |
 | **Product deduplication** | Multiple cart slots for the same product only trigger one API request |
+| **Listing remap** | Pre-indexed `Map<productId, listing[]>` for O(1) slot remapping instead of O(slots × listings) linear scan |
 | **Top-K pruning** | Only the 25 cheapest listings per slot are kept, dramatically reducing ILP size without affecting solution quality |
+| **Adaptive topK** | Automatically scales down topK for large carts (15 for 75+ items, 20 for 50+ items) to keep ILP within WASM limits |
+| **Aggregated constraints** | Seller-linking constraints use one aggregated inequality per seller instead of one per listing—~80% fewer constraints for large models |
 | **LP line splitting** | Long constraint expressions are split at ~500 chars to stay within HiGHS's ~560-char line buffer |
 | **ILP variable count** | For a cart with $C$ slots and $K=25$ top listings across $S$ sellers: ~$C \times K$ binary $x$ variables, $S$ binary $y$ variables, ≤$S$ binary $z$ variables |
 | **Multi-solve** | Each vendor-count solve shares the same LP structure; only the `maxSellers` constraint changes. Dominated results are removed before sending to the UI. |
 | **Cart application** | Sequential item addition with 50ms delays (required by the cart API); aggregation reduces duplicate sku+seller additions |
 | **WASM solver** | HiGHS solver runs with `presolve: 'on'` and a 30-second time limit. Most carts solve in under 1 second. |
+| **WASM stack** | Custom-built highs.wasm with 8MB stack (vs. 64KB in npm release) prevents stack overflow on large models |
+| **WASM resilience** | Automatic retry with reduced model size on WASM crash; HiGHS instance reset after abort |
+| **Seller cache** | Shipping info cached in `chrome.storage.local` with 6-hour TTL; repeat optimizations skip most shipping API calls |
 
 ---
 
@@ -895,3 +1022,16 @@ Sellers whose listings appear in the search index but whose storefronts are inac
 ### No External Dependencies at Runtime
 
 The extension has zero runtime dependencies on external services. All computation happens locally using TCGPlayer's own public APIs. This ensures privacy, reliability, and eliminates the need for server infrastructure.
+
+### Custom WASM Solver Build
+
+Rather than relying on the published `highs` npm package, we build HiGHS WASM from source with an 8MB Emscripten stack. The npm v1.8.0 ships with a 64KB stack—sufficient for small models but catastrophically insufficient for 100-item carts. This was the root cause of "Aborted()" and "function signature mismatch" crashes. The upstream fix (PR #43 to `lovasoa/highs-js`) was merged but never released, so we build ourselves via Docker.
+
+### Graceful Degradation for Large Models
+
+The solver uses a layered defense against oversized ILP models:
+1. **Aggregated constraints** reduce LP string size ~80%.
+2. **Adaptive topK** scales down the number of candidate listings per slot based on cart size.
+3. **Retry with reduction** automatically shrinks the model if WASM still crashes.
+4. **Instance reset** re-initializes HiGHS after a WASM abort.
+5. **User-facing message** if all retries are exhausted, with actionable suggestions.

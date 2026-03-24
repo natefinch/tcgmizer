@@ -132,13 +132,14 @@
 }
 
 .tcgmizer-progress-bar-indeterminate {
-  animation: tcgmizer-pulse 1.5s ease-in-out infinite;
-  opacity: 0.7;
+  width: 30% !important;
+  animation: tcgmizer-slide 1.5s ease-in-out infinite;
 }
 
-@keyframes tcgmizer-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+@keyframes tcgmizer-slide {
+  0% { margin-left: 0%; }
+  50% { margin-left: 70%; }
+  100% { margin-left: 0%; }
 }
 
 /* Results */
@@ -192,19 +193,21 @@
 .tcgmizer-sellers-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
 }
 
 .tcgmizer-seller {
   background: #f7f9fb;
   border: 1px solid #e8ecef;
+  border-top: 3px solid #2e9e5e;
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 12px 14px;
 }
 
 .tcgmizer-seller-direct {
   background: #f0f7ff;
   border-color: #b3d4fc;
+  border-top-color: #3b82f6;
 }
 
 .tcgmizer-seller-header {
@@ -215,7 +218,8 @@
 }
 
 .tcgmizer-seller-name {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 16px;
   color: #222;
 }
 

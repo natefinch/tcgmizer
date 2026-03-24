@@ -31,15 +31,24 @@ export async function applyOptimizedCart(result) {
           console.warn('[TCGmizer] Item missing productConditionId:', item);
           continue;
         }
+        // For Direct items, use the original seller info preserved during ILP remapping
+        const isDirectItem = seller.isDirect || item.directListing;
+        const itemSellerKey = isDirectItem && item.originalSellerKey
+          ? item.originalSellerKey
+          : (seller.sellerKey || seller.sellerId);
+        const itemSellerNumericId = isDirectItem && item.originalSellerNumericId != null
+          ? item.originalSellerNumericId
+          : seller.sellerNumericId;
+
         rawItems.push({
           sku: item.productConditionId,
-          sellerId: seller.sellerNumericId,
-          sellerKey: seller.sellerKey || seller.sellerId,
+          sellerId: itemSellerNumericId,
+          sellerKey: itemSellerKey,
           price: item.price,
           quantity: 1,
           cardName: item.cardName,
           setName: item.setName || '',
-          isDirect: item.directSeller || false,
+          isDirect: item.directListing || item.directSeller || false,
           customListingKey: item.customListingKey || null,
         });
       }

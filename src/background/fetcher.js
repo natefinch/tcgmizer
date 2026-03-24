@@ -1,7 +1,60 @@
-import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, DEFAULT_FETCH_CONCURRENCY, LISTINGS_PER_PAGE, MAX_ALTERNATIVE_PRINTINGS } from '../shared/constants.js';
+import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, DEFAULT_FETCH_CONCURRENCY, LISTINGS_PER_PAGE, MAX_ALTERNATIVE_PRINTINGS, SEARCH_RESULTS_PER_PAGE } from '../shared/constants.js';
+import { pruneExpiredEntries, getCachedSellers, cacheSellers } from './seller-cache.js';
 
 const SEARCH_API_BASE = 'https://mp-search-api.tcgplayer.com';
 const ROOT_API_BASE = 'https://mpapi.tcgplayer.com';
+
+// Cached product line data from TCGPlayer API
+let productLinesCache = null;
+
+/**
+ * Fetches the list of product lines from TCGPlayer's API and caches it.
+ * Returns a Map of lowercased productLineName → productLineUrlName.
+ *
+ * @returns {Promise<Map<string, string>>} Map of lowercase name → URL slug
+ */
+export async function fetchProductLines() {
+  if (productLinesCache) return productLinesCache;
+
+  try {
+    const response = await fetch(`${SEARCH_API_BASE}/v1/search/productLines`, {
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!response.ok) {
+      console.warn(`[TCGmizer] Failed to fetch product lines: ${response.status}`);
+      return new Map();
+    }
+
+    const data = await response.json();
+    const map = new Map();
+    for (const line of data) {
+      if (line.productLineName && line.productLineUrlName) {
+        map.set(line.productLineName.toLowerCase(), line.productLineUrlName);
+      }
+    }
+
+    productLinesCache = map;
+    console.log(`[TCGmizer] Loaded ${map.size} product lines`);
+    return map;
+  } catch (err) {
+    console.warn('[TCGmizer] Error fetching product lines:', err);
+    return new Map();
+  }
+}
+
+/**
+ * Look up the product line URL slug for a given product line name.
+ * Fetches and caches the product lines from the API on first call.
+ *
+ * @param {string} productLineName - Full product line name (e.g. "Magic: The Gathering")
+ * @returns {Promise<string|null>} URL slug (e.g. "magic") or null if not found
+ */
+export async function lookupProductLineSlug(productLineName) {
+  if (!productLineName) return null;
+  const map = await fetchProductLines();
+  return map.get(productLineName.toLowerCase()) || null;
+}
 
 /**
  * Fetches listings for a list of card product IDs from TCGPlayer's internal APIs.
@@ -119,19 +172,62 @@ export async function fetchAllListings(cards, options = {}) {
     }
   }
 
-  // Fetch shipping thresholds for all sellers
-  let knownSellerKeys = new Set();
-  if (Object.keys(sellersMap).length > 0) {
+  // --- Seller cache: prune expired entries, apply cached info, fetch only uncached ---
+  const sellerCache = await pruneExpiredEntries();
+  const allSellerKeys = Object.keys(sellersMap);
+  const { cached: cachedSellers, uncachedKeys } = getCachedSellers(allSellerKeys, sellerCache);
+
+  // Apply cached shipping info
+  const knownSellerKeys = new Set();
+  for (const [key, info] of Object.entries(cachedSellers)) {
+    if (sellersMap[key]) {
+      sellersMap[key].shippingCost = info.shippingCost;
+      sellersMap[key].freeShippingThreshold = info.freeShippingThreshold;
+      knownSellerKeys.add(key);
+    }
+  }
+  if (Object.keys(cachedSellers).length > 0) {
+    console.log(`[TCGmizer] Used cached shipping info for ${Object.keys(cachedSellers).length} seller(s)`);
+  }
+
+  // Fetch shipping thresholds only for uncached sellers
+  if (uncachedKeys.length > 0) {
+    // Build a sub-map of only uncached sellers for the shipping API call
+    const uncachedSellersMap = {};
+    for (const key of uncachedKeys) {
+      uncachedSellersMap[key] = sellersMap[key];
+    }
+
     try {
-      knownSellerKeys = await fetchSellerShippingInfo(sellersMap, onShippingProgress);
+      const respondedKeys = await fetchSellerShippingInfo(uncachedSellersMap, onShippingProgress);
+      for (const key of respondedKeys) {
+        knownSellerKeys.add(key);
+        // Copy updated shipping info back into the main sellersMap
+        if (uncachedSellersMap[key]) {
+          sellersMap[key].shippingCost = uncachedSellersMap[key].shippingCost;
+          sellersMap[key].freeShippingThreshold = uncachedSellersMap[key].freeShippingThreshold;
+        }
+      }
+
+      // Cache all newly fetched seller info (only those that responded — not ghosts)
+      const toCache = {};
+      for (const key of respondedKeys) {
+        toCache[key] = sellersMap[key];
+      }
+      if (Object.keys(toCache).length > 0) {
+        await cacheSellers(toCache);
+      }
     } catch (err) {
       console.warn('[TCGmizer] Failed to fetch seller shipping info:', err);
     }
+  } else if (allSellerKeys.length > 0) {
+    console.log('[TCGmizer] All seller shipping info served from cache');
   }
 
   // Filter out "ghost" sellers — present in listings search index but not
   // recognized by the shipping API (their profiles return 404 and cart
   // additions always fail with CAPI-35 ProductCategoryNotVisible).
+  // Cached sellers are always considered known (they responded previously).
   if (knownSellerKeys.size > 0) {
     const ghostKeys = Object.keys(sellersMap).filter(k => !knownSellerKeys.has(k));
     if (ghostKeys.length > 0) {
@@ -329,8 +425,13 @@ async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}
  * Uses the TCGPlayer product search API.
  * Returns an array of { productId, productName, setName }.
  */
-export async function searchProductsByName(cardName) {
+export async function searchProductsByName(cardName, productLineName = null) {
   try {
+    const termFilters = {};
+    if (productLineName) {
+      termFilters.productLineName = [productLineName];
+    }
+
     const response = await fetch(
       `${SEARCH_API_BASE}/v1/search/request?q=${encodeURIComponent(cardName)}&isList=false`,
       {
@@ -340,22 +441,29 @@ export async function searchProductsByName(cardName) {
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          algorithm: '',
+          algorithm: 'revenue_dismax',
           from: 0,
-          size: 100,
+          size: SEARCH_RESULTS_PER_PAGE,
           filters: {
-            term: {
-              productTypeName: ['Cards'],
-            },
-            range: {
-              // Only include products that have listings (market price > 0)
-              marketPrice: { gte: 0.01 },
-            },
+            term: termFilters,
+            range: {},
             match: {},
+          },
+          listingSearch: {
+            context: { cart: {} },
+            filters: {
+              term: { sellerStatus: 'Live', channelId: 0 },
+              range: { quantity: { gte: 1 } },
+              exclude: { channelExclusion: 0 },
+            },
           },
           context: {
             cart: {},
             shippingCountry: 'US',
+          },
+          settings: {
+            useFuzzySearch: true,
+            didYouMean: {},
           },
           sort: {},
         }),
@@ -404,12 +512,14 @@ export async function searchProductsByName(cardName) {
  * @param {number} [options.concurrency] - Max concurrent requests (default: DEFAULT_FETCH_CONCURRENCY)
  * @param {number} [options.delayMs] - Stagger delay between requests (default: DEFAULT_FETCH_DELAY_MS)
  * @param {function} [options.onProgress] - Progress callback: ({ current, total })
+ * @param {string} [options.productLineName] - Product line slug for filtering (e.g. "magic")
  * @returns {Promise<{ productCards: Array<{productId, cardName}>, allowedProductLines: Set, cardNameToProductIds: Map, productIdToSetName: Map }>}
  */
 export async function searchAllCardPrintings(cardNames, seenProducts, options = {}) {
   const concurrency = options.concurrency || DEFAULT_FETCH_CONCURRENCY;
   const delayMs = options.delayMs ?? DEFAULT_FETCH_DELAY_MS;
   const onProgress = options.onProgress || (() => {});
+  const productLineName = options.productLineName || null;
 
   // Collect raw search results concurrently, then process sequentially
   const searchResults = new Map(); // cardName → printings[]
@@ -417,7 +527,7 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
 
   async function searchOne(name) {
     try {
-      const printings = await searchProductsByName(name);
+      const printings = await searchProductsByName(name, productLineName);
       return { name, printings, error: null };
     } catch (err) {
       return { name, printings: [], error: err };

@@ -20,9 +20,18 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
   const maxSellers = options.maxSellers || null;
   const maxCuts = options.maxCuts || 0;
 
+  // When maxSellers is set, pre-filter to a candidate pool of high-coverage
+  // sellers. Without this, topK pruning keeps the cheapest per-slot listings
+  // which scatter across thousands of low-coverage sellers, making it impossible
+  // to cover all slots with a small number of sellers.
+  let filteredListings = listings;
+  if (maxSellers != null && maxSellers > 0) {
+    filteredListings = prefilterForMinVendors(listings, cardSlots, maxSellers);
+  }
+
   // Group listings by slotId and prune to top-K cheapest (by price, since shipping is per-seller)
   const listingsBySlot = new Map();
-  for (const listing of listings) {
+  for (const listing of filteredListings) {
     if (!listingsBySlot.has(listing.slotId)) {
       listingsBySlot.set(listing.slotId, []);
     }
@@ -30,12 +39,33 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
   }
 
   // Sort each slot's listings by price and keep top K
+  // But preserve the cheapest Direct listing per slot even if outside top-K,
+  // so the solver can choose Direct when shipping consolidation is worthwhile.
   for (const [slotId, slotListings] of listingsBySlot) {
     slotListings.sort((a, b) => a.price - b.price);
     if (slotListings.length > topK) {
-      listingsBySlot.set(slotId, slotListings.slice(0, topK));
+      const topKListings = slotListings.slice(0, topK);
+
+      // Check if any Direct listing made it into the top-K
+      const hasDirectInTopK = topKListings.some(l => l.directListing);
+      if (!hasDirectInTopK) {
+        // Find the cheapest Direct listing from the full list
+        const cheapestDirect = slotListings.find(l => l.directListing);
+        if (cheapestDirect) {
+          topKListings.push(cheapestDirect);
+        }
+      }
+
+      listingsBySlot.set(slotId, topKListings);
     }
   }
+
+  // Price pruning: discard listings far above the median price for each slot.
+  // A card may have printings ranging from $1 to $100 — the expensive ones
+  // will never be part of an optimal solution. Removing them dramatically
+  // reduces the number of active sellers (and hence y/z variables and
+  // constraints), which keeps the ILP small enough for HiGHS WASM.
+  pruneExpensiveListings(listingsBySlot);
 
   // Validate: every slot must have at least one listing
   for (const slot of cardSlots) {
@@ -100,7 +130,10 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
       xVarsBySeller.get(listing.sellerId).push({ varName, price: listing.price });
 
       // Track per-inventory-unit x vars for quantity constraints
-      const invKey = `${listing.sellerId}:${listing.productConditionId}`;
+      // Use originalSellerId for inventory keys when available (Direct listings are
+      // remapped to a synthetic seller, but inventory is still per-original-seller)
+      const invSellerId = listing.originalSellerId || listing.sellerId;
+      const invKey = `${invSellerId}:${listing.productConditionId}`;
       if (!xVarsByInventory.has(invKey)) {
         xVarsByInventory.set(invKey, { vars: [], quantity: listing.quantity || 1 });
       }
@@ -189,16 +222,20 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
     }
   }
 
-  // Constraint 2: Seller linking — x_{s,l} <= y_{seller}
+  // Constraint 2: Seller linking — if any x for seller s is 1, then y_s = 1
+  // Aggregated form: sum(x_i for seller s) - N * y_s <= 0
+  // where N = number of x-vars for this seller. This is equivalent to the
+  // individual x_i - y_s <= 0 constraints but produces far fewer lines,
+  // keeping the LP string small enough for HiGHS WASM on large models.
   for (const sellerId of activeSellers) {
     const si = sellerIndex.get(sellerId);
     const yVar = `y_v${si}`;
     const sellerXVars = xVarsBySeller.get(sellerId);
     if (!sellerXVars) continue;
 
-    for (const { varName } of sellerXVars) {
-      lines.push(` link_${varName}: ${varName} - ${yVar} <= 0`);
-    }
+    const N = sellerXVars.length;
+    const terms = sellerXVars.map(({ varName }) => varName).join(' + ');
+    pushExpressionLines(lines, `link_v${si}`, `${terms} - ${N} ${yVar}`, '<= 0');
   }
 
   // Constraint 3: Free shipping threshold — sum(price * x) >= threshold * z
@@ -338,4 +375,186 @@ function formatCoeff(n) {
   const s = Number(n).toFixed(4);
   // Strip trailing zeros after decimal point
   return s.replace(/\.?0+$/, '') || '0';
+}
+/**
+ * Remove listings that are far above the median price for their slot.
+ *
+ * For each slot, computes the median listing price and removes any listing
+ * priced above 3× the median. This eliminates expensive printings/versions
+ * that would never be part of an optimal solution but whose sellers add
+ * y/z variables and constraints to the ILP.
+ *
+ * Always keeps at least 3 listings per slot (never prunes below that).
+ * Listings must already be sorted by price ascending.
+ *
+ * @param {Map<string, Array>} listingsBySlot - slotId → sorted listings array (mutated in place)
+ */
+function pruneExpensiveListings(listingsBySlot) {
+  const PRICE_MULTIPLIER = 3; // keep listings up to 3× median
+  const MIN_KEEP = 3;         // never prune below this many per slot
+
+  let totalBefore = 0;
+  let totalAfter = 0;
+
+  for (const [slotId, slotListings] of listingsBySlot) {
+    totalBefore += slotListings.length;
+
+    if (slotListings.length <= MIN_KEEP) {
+      totalAfter += slotListings.length;
+      continue;
+    }
+
+    // Listings are pre-sorted by price ascending (Direct listing may be appended at end)
+    const medianIdx = Math.floor(slotListings.length / 2);
+    const medianPrice = slotListings[medianIdx].price;
+
+    // Don't prune if the median is very low (avoid cutting $3 listings when median is $0.50)
+    // Use at least $2 as the absolute threshold above median
+    const cutoff = Math.max(medianPrice * PRICE_MULTIPLIER, medianPrice + 2);
+
+    // Find the first index that exceeds the cutoff
+    let keepCount = slotListings.length;
+    for (let i = medianIdx + 1; i < slotListings.length; i++) {
+      if (slotListings[i].price > cutoff) {
+        keepCount = i;
+        break;
+      }
+    }
+
+    // Never go below MIN_KEEP
+    keepCount = Math.max(keepCount, MIN_KEEP);
+
+    if (keepCount < slotListings.length) {
+      let pruned = slotListings.slice(0, keepCount);
+
+      // Preserve the cheapest Direct listing even if above the cutoff,
+      // so the solver can use Direct for shipping consolidation.
+      const hasDirectInKept = pruned.some(l => l.directListing);
+      if (!hasDirectInKept) {
+        const cheapestDirect = slotListings.find(l => l.directListing);
+        if (cheapestDirect) {
+          pruned.push(cheapestDirect);
+        }
+      }
+
+      listingsBySlot.set(slotId, pruned);
+    }
+
+    totalAfter += Math.min(keepCount, slotListings.length);
+  }
+
+  if (totalBefore > totalAfter) {
+    console.log(`[TCGmizer ILP] Price pruning: ${totalBefore} → ${totalAfter} listings (removed ${totalBefore - totalAfter} expensive outliers)`);
+  }
+}
+
+/**
+ * Pre-filter listings to a candidate pool of high-coverage sellers.
+ *
+ * When maxSellers is small, topK pruning (keeping cheapest per-slot) scatters
+ * listings across many low-coverage sellers, making it impossible to cover all
+ * slots with few sellers. This pre-filter selects sellers that cover the most
+ * slots (a coverage-aware approach), keeping the model small and feasible.
+ *
+ * The candidate pool includes:
+ *  - Sellers ranked by number of unique slots they cover (top N)
+ *  - The cheapest listing per slot (regardless of seller, for price floor)
+ *  - Always includes the synthetic Direct seller (__tcgplayer_direct__)
+ *
+ * @param {Array} listings - All available listings
+ * @param {Array} cardSlots - Card slots to cover
+ * @param {number} maxSellers - Maximum number of sellers allowed
+ * @returns {Array} Filtered listings from the candidate seller pool
+ */
+function prefilterForMinVendors(listings, cardSlots, maxSellers) {
+  // Target: keep a tight pool of candidate sellers for the ILP.
+  // The maxSellers constraint makes branch-and-bound exponentially harder,
+  // so we need far fewer sellers than the unconstrained case.
+  // Use 3× maxSellers as the candidate pool, with floor of 30.
+  const CANDIDATE_POOL = Math.max(30, maxSellers * 3);
+
+  const slotIds = new Set(cardSlots.map(s => s.slotId));
+
+  // Step 1: Count slot coverage for each seller, considering only relevant slots
+  const sellerSlots = new Map(); // sellerId → Set<slotId>
+  const sellerCheapest = new Map(); // sellerId → Map<slotId, cheapest price>
+  for (const l of listings) {
+    if (!slotIds.has(l.slotId)) continue;
+
+    if (!sellerSlots.has(l.sellerId)) {
+      sellerSlots.set(l.sellerId, new Set());
+      sellerCheapest.set(l.sellerId, new Map());
+    }
+    sellerSlots.get(l.sellerId).add(l.slotId);
+
+    const cheapMap = sellerCheapest.get(l.sellerId);
+    const curr = cheapMap.get(l.slotId);
+    if (curr === undefined || l.price < curr) {
+      cheapMap.set(l.slotId, l.price);
+    }
+  }
+
+  // Step 2: Greedy set cover to find a small set of sellers that covers all slots,
+  // preferring high-coverage sellers.
+  const candidateSellers = new Set();
+
+  // Always include Direct seller — it's the whole point of this fix
+  if (sellerSlots.has('__tcgplayer_direct__')) {
+    candidateSellers.add('__tcgplayer_direct__');
+  }
+
+  // Greedy set cover: repeatedly pick the seller covering the most uncovered slots
+  const uncoveredSlots = new Set(slotIds);
+  const availableSellers = new Map(sellerSlots); // copy
+  while (uncoveredSlots.size > 0 && availableSellers.size > 0) {
+    let bestSeller = null;
+    let bestNewCoverage = 0;
+    for (const [sellerId, slots] of availableSellers) {
+      let newCoverage = 0;
+      for (const s of slots) {
+        if (uncoveredSlots.has(s)) newCoverage++;
+      }
+      if (newCoverage > bestNewCoverage) {
+        bestNewCoverage = newCoverage;
+        bestSeller = sellerId;
+      }
+    }
+    if (!bestSeller || bestNewCoverage === 0) break;
+
+    candidateSellers.add(bestSeller);
+    for (const s of availableSellers.get(bestSeller)) {
+      uncoveredSlots.delete(s);
+    }
+    availableSellers.delete(bestSeller);
+  }
+
+  // Step 3: Add more sellers up to CANDIDATE_POOL, ranked by coverage
+  const ranked = [...sellerSlots.entries()]
+    .filter(([sid]) => !candidateSellers.has(sid))
+    .map(([sellerId, slots]) => ({ sellerId, coverage: slots.size }))
+    .sort((a, b) => b.coverage - a.coverage);
+
+  const remaining = CANDIDATE_POOL - candidateSellers.size;
+  for (let i = 0; i < Math.min(ranked.length, remaining); i++) {
+    candidateSellers.add(ranked[i].sellerId);
+  }
+
+  // Step 4: Ensure cheapest listing per slot is included (for price floor)
+  const cheapestPerSlot = new Map(); // slotId → listing
+  for (const l of listings) {
+    if (!slotIds.has(l.slotId)) continue;
+    const curr = cheapestPerSlot.get(l.slotId);
+    if (!curr || l.price < curr.price) {
+      cheapestPerSlot.set(l.slotId, l);
+    }
+  }
+  for (const [, l] of cheapestPerSlot) {
+    candidateSellers.add(l.sellerId);
+  }
+
+  // Step 5: Filter listings to only those from candidate sellers
+  const filtered = listings.filter(l => candidateSellers.has(l.sellerId));
+
+  console.log(`[TCGmizer ILP] Min-vendors pre-filter: ${listings.length} → ${filtered.length} listings, ${candidateSellers.size} candidate sellers (from ${sellerSlots.size} total)`);
+  return filtered;
 }

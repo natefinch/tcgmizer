@@ -177,13 +177,13 @@ console.log('\nTest 2: searchProductsByName excludes zero-listing products');
 }
 
 // ============================================================
-// Test 3: searchProductsByName handles pagination
+// Test 3: searchProductsByName returns first page of results
 // ============================================================
-console.log('\nTest 3: searchProductsByName pagination');
+console.log('\nTest 3: searchProductsByName first page results');
 {
   const { searchProductsByName } = await import('../src/background/fetcher.js');
 
-  // Create more products than one page
+  // Create more products than one page — function only fetches the first page
   const allProducts = [];
   for (let i = 0; i < 75; i++) {
     allProducts.push(makeProduct(3000 + i, 'Island', `Set ${i}`, 1, 1.0 + i * 0.1));
@@ -202,12 +202,12 @@ console.log('\nTest 3: searchProductsByName pagination');
   try {
     const results = await searchProductsByName('Island');
 
-    test('Fetches all products across pages', () => {
-      assert(results.length === 75, `Expected 75 results, got ${results.length}`);
+    test('Returns first page of results', () => {
+      assert(results.length === SEARCH_RESULTS_PER_PAGE, `Expected ${SEARCH_RESULTS_PER_PAGE} results, got ${results.length}`);
     });
 
-    test('Makes multiple API requests', () => {
-      assert(requestCount === 2, `Expected 2 requests (pages), got ${requestCount}`);
+    test('Makes exactly one API request', () => {
+      assert(requestCount === 1, `Expected 1 request, got ${requestCount}`);
     });
   } finally {
     restore();
@@ -257,27 +257,42 @@ console.log('\nTest 5: searchProductsByName request format');
       assert(capturedUrl.includes('q=Dark%20Ritual'), `URL should contain q=Dark%20Ritual, got: ${capturedUrl}`);
     });
 
-    test('Uses productName term filter', () => {
-      const term = capturedBody?.filters?.term;
-      assert(term, 'Should have term filters');
-      assert(Array.isArray(term.productName), 'Should have productName filter');
-      assert(term.productName[0] === 'Dark Ritual', `productName should be "Dark Ritual", got "${term.productName[0]}"`);
+    test('Uses revenue_dismax algorithm', () => {
+      assert(capturedBody.algorithm === 'revenue_dismax', `algorithm should be "revenue_dismax", got "${capturedBody.algorithm}"`);
     });
 
-    test('Uses productTypeName filter', () => {
+    test('Has no term filters by default', () => {
       const term = capturedBody?.filters?.term;
-      assert(Array.isArray(term.productTypeName), 'Should have productTypeName filter');
-      assert(term.productTypeName[0] === 'Cards', 'Should filter to Cards');
+      assert(term, 'Should have term filters object');
+      assert(Object.keys(term).length === 0, 'Should have empty term filters by default');
+    });
+
+    test('Has empty range filters', () => {
+      const range = capturedBody?.filters?.range || {};
+      assert(Object.keys(range).length === 0, 'Should have empty range filters');
+    });
+
+    test('Has listingSearch section', () => {
+      assert(capturedBody.listingSearch, 'Should have listingSearch');
+      assert(capturedBody.listingSearch.filters?.term?.sellerStatus === 'Live', 'Should filter to Live sellers');
+    });
+
+    test('Has fuzzy search enabled', () => {
+      assert(capturedBody.settings?.useFuzzySearch === true, 'Should have useFuzzySearch: true');
     });
 
     test('Page size is within API limit', () => {
       assert(capturedBody.size <= 50, `Page size ${capturedBody.size} exceeds API limit of 50`);
     });
 
-    test('Does not use marketPrice range filter', () => {
-      // marketPrice filter was removed since productName term filter ensures exact matches
-      const range = capturedBody?.filters?.range || {};
-      assert(!range.marketPrice, 'Should not have marketPrice range filter');
+    // Test with productLineName parameter
+    await searchProductsByName('Dark Ritual', 'magic');
+
+    test('Includes productLineName filter when provided', () => {
+      const term = capturedBody?.filters?.term;
+      assert(term, 'Should have term filters');
+      assert(Array.isArray(term.productLineName), 'Should have productLineName filter');
+      assert(term.productLineName[0] === 'magic', `productLineName should be "magic", got "${term.productLineName[0]}"`);
     });
   } finally {
     restore();
@@ -383,9 +398,43 @@ console.log('\nTest 7: searchAllCardPrintings product line filtering');
 }
 
 // ============================================================
-// Test 8: searchAllCardPrintings respects MAX_ALTERNATIVE_PRINTINGS
+// Test 8: searchAllCardPrintings passes productLineName to search
 // ============================================================
-console.log('\nTest 8: searchAllCardPrintings max printings limit');
+console.log('\nTest 8: searchAllCardPrintings passes productLineName');
+{
+  const products = [
+    makeProduct(5508, 'Dark Ritual', 'Tempest'),
+    makeProduct(1712, 'Dark Ritual', 'Fourth Edition', 1, 3.0),
+  ];
+
+  let capturedBodies = [];
+  const restore = mockFetch(async (url, opts) => {
+    capturedBodies.push(JSON.parse(opts.body));
+    return makeSearchResponse(products);
+  });
+
+  try {
+    const seenProducts = new Set([5508]);
+    await searchAllCardPrintings(['Dark Ritual'], seenProducts, {
+      productLineName: 'magic',
+    });
+
+    test('Passes productLineName filter in search requests', () => {
+      assert(capturedBodies.length > 0, 'Should have made at least 1 request');
+      const term = capturedBodies[0]?.filters?.term;
+      assert(term, 'Should have term filters');
+      assert(Array.isArray(term.productLineName), 'Should have productLineName filter');
+      assert(term.productLineName[0] === 'magic', `Expected "magic", got "${term.productLineName[0]}"`);
+    });
+  } finally {
+    restore();
+  }
+}
+
+// ============================================================
+// Test 9: searchAllCardPrintings respects MAX_ALTERNATIVE_PRINTINGS
+// ============================================================
+console.log('\nTest 9: searchAllCardPrintings max printings limit');
 {
   const products = [makeProduct(5508, 'Dark Ritual', 'Tempest')];
   for (let i = 0; i < 20; i++) {
@@ -408,9 +457,9 @@ console.log('\nTest 8: searchAllCardPrintings max printings limit');
 }
 
 // ============================================================
-// Test 9: ILP solver picks cheaper alternative printing
+// Test 10: ILP solver picks cheaper alternative printing
 // ============================================================
-console.log('\nTest 9: ILP solver picks cheaper alternative printing');
+console.log('\nTest 10: ILP solver picks cheaper alternative printing');
 {
   // Scenario: Cart has Dark Ritual from Tempest (expensive).
   // Alternative printing from Fourth Edition is much cheaper.
@@ -452,9 +501,9 @@ console.log('\nTest 9: ILP solver picks cheaper alternative printing');
 }
 
 // ============================================================
-// Test 10: ILP with exactPrintings filter keeps only original
+// Test 11: ILP with exactPrintings filter keeps only original
 // ============================================================
-console.log('\nTest 10: exactPrintings filter restricts to original product');
+console.log('\nTest 11: exactPrintings filter restricts to original product');
 {
   // Same scenario as Test 9, but with exactPrintings filter applied
   // (simulates what the service worker does before building the ILP)
@@ -496,9 +545,9 @@ console.log('\nTest 10: exactPrintings filter restricts to original product');
 }
 
 // ============================================================
-// Test 11: Multiple cards with alternatives
+// Test 12: Multiple cards with alternatives
 // ============================================================
-console.log('\nTest 11: Multiple cards with alternative printings');
+console.log('\nTest 12: Multiple cards with alternative printings');
 {
   const cardSlots = [
     { slotId: 'c1', cardName: 'Dark Ritual', productId: 5508 },
@@ -555,9 +604,9 @@ console.log('\nTest 11: Multiple cards with alternative printings');
 }
 
 // ============================================================
-// Test 12: searchAllCardPrintings handles multiple card names
+// Test 13: searchAllCardPrintings handles multiple card names
 // ============================================================
-console.log('\nTest 12: searchAllCardPrintings with multiple cards');
+console.log('\nTest 13: searchAllCardPrintings with multiple cards');
 {
   const searchResponses = {
     'Dark Ritual': [
@@ -600,9 +649,9 @@ console.log('\nTest 12: searchAllCardPrintings with multiple cards');
 }
 
 // ============================================================
-// Test 13: searchAllCardPrintings handles empty search results
+// Test 14: searchAllCardPrintings handles empty search results
 // ============================================================
-console.log('\nTest 13: searchAllCardPrintings with empty search results');
+console.log('\nTest 14: searchAllCardPrintings with empty search results');
 {
   const restore = mockFetch(async () => makeSearchResponse([]));
 
@@ -625,9 +674,9 @@ console.log('\nTest 13: searchAllCardPrintings with empty search results');
 }
 
 // ============================================================
-// Test 14: searchAllCardPrintings handles API errors gracefully
+// Test 15: searchAllCardPrintings handles API errors gracefully
 // ============================================================
-console.log('\nTest 14: searchAllCardPrintings API error handling');
+console.log('\nTest 15: searchAllCardPrintings API error handling');
 {
   const restore = mockFetch(async () => ({ ok: false, status: 500, text: async () => 'Internal Server Error' }));
 
@@ -644,9 +693,9 @@ console.log('\nTest 14: searchAllCardPrintings API error handling');
 }
 
 // ============================================================
-// Test 15: SEARCH_RESULTS_PER_PAGE constant is ≤ 50
+// Test 16: SEARCH_RESULTS_PER_PAGE constant is ≤ 50
 // ============================================================
-console.log('\nTest 15: Constants validation');
+console.log('\nTest 16: Constants validation');
 {
   test('SEARCH_RESULTS_PER_PAGE is within API limit', () => {
     assert(SEARCH_RESULTS_PER_PAGE <= 50,
@@ -659,9 +708,9 @@ console.log('\nTest 15: Constants validation');
 }
 
 // ============================================================
-// Test 16: Live API test (verifies the fix works against real API)
+// Test 17: Live API test (verifies the fix works against real API)
 // ============================================================
-console.log('\nTest 16: Live API test for Dark Ritual');
+console.log('\nTest 17: Live API test for Dark Ritual');
 {
   const { searchProductsByName } = await import('../src/background/fetcher.js');
 
@@ -693,9 +742,9 @@ console.log('\nTest 16: Live API test for Dark Ritual');
 }
 
 // ============================================================
-// Test 17: Strixhaven Dark Ritual scenario (user-reported bug)
+// Test 18: Strixhaven Dark Ritual scenario (user-reported bug)
 // ============================================================
-console.log('\nTest 17: Strixhaven Dark Ritual scenario (user-reported bug)');
+console.log('\nTest 18: Strixhaven Dark Ritual scenario (user-reported bug)');
 {
   // Reproduces the exact user-reported scenario:
   // Cart has Dark Ritual from Strixhaven Mystical Archives (product 235245, lowest ~$7)

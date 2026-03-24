@@ -223,21 +223,29 @@ Search for products (cards) by name, used to find alternative printings of the s
 
 ```json
 {
-  "algorithm": "",
+  "algorithm": "revenue_dismax",
   "from": 0,
-  "size": 100,
+  "size": 50,
   "filters": {
-    "term": {
-      "productTypeName": ["Cards"]
-    },
-    "range": {
-      "marketPrice": { "gte": 0.01 }
-    },
+    "term": {},
+    "range": {},
     "match": {}
+  },
+  "listingSearch": {
+    "context": { "cart": {} },
+    "filters": {
+      "term": { "sellerStatus": "Live", "channelId": 0 },
+      "range": { "quantity": { "gte": 1 } },
+      "exclude": { "channelExclusion": 0 }
+    }
   },
   "context": {
     "cart": {},
     "shippingCountry": "US"
+  },
+  "settings": {
+    "useFuzzySearch": true,
+    "didYouMean": {}
   },
   "sort": {}
 }
@@ -247,9 +255,41 @@ Search for products (cards) by name, used to find alternative printings of the s
 
 | Field | Value | Purpose |
 |-------|-------|---------|
-| `algorithm` | `""` | Required but empty string for default |
-| `productTypeName` | `["Cards"]` | Only card products (excludes sealed, accessories) |
-| `marketPrice.gte` | `0.01` | Only products with actual listings/sales |
+| `algorithm` | `"revenue_dismax"` | **Required** — must be `"revenue_dismax"`. An empty string causes 400 errors. |
+| `size` | `50` max | **Max page size is 50.** Values above 50 (e.g. 100) cause 400 Bad Request. |
+| `filters.term` | `{}` | Empty by default. Can include `productLineName` to restrict to a game (see below). |
+| `filters.range` | `{}` | **Must be empty `{}`**. Older filter fields like `marketPrice` are not valid on this endpoint and cause 400 errors. |
+| `listingSearch` | object | Listing-level filters. Mirrors the structure used by the listings endpoint. |
+| `settings.useFuzzySearch` | `true` | Enables fuzzy matching for card names. |
+
+### Product Line Filtering
+
+To restrict search to a specific game/product line, add `productLineName` to `filters.term`:
+
+```json
+{
+  "filters": {
+    "term": {
+      "productLineName": ["magic"]
+    },
+    "range": {},
+    "match": {}
+  }
+}
+```
+
+The `productLineName` filter value is the `productLineUrlName` field from the Product Lines API (see [Section 8](#8-product-lines)). These are lowercase URL slugs like `"magic"`, `"pokemon"`, `"yugioh"` — not the display names like `"Magic: The Gathering"`.
+
+### Invalid Fields (Cause 400 Errors)
+
+The following fields were previously used but are **not valid** on this endpoint:
+
+| Invalid Field | Notes |
+|---------------|-------|
+| `filters.term.productTypeName` | Not a valid search filter. Causes 400. |
+| `filters.range.marketPrice` | Not a valid search range filter. Causes 400. |
+| `algorithm: ""` | Empty string is rejected. Must be `"revenue_dismax"`. |
+| `size` > 50 | Max page size is 50. |
 
 ### Response
 
@@ -607,7 +647,58 @@ Returns just the item count.
 
 ---
 
-## 8. Other Observed Endpoints
+## 8. Product Lines
+
+Fetches the list of all product lines (games/categories) on TCGPlayer. Used to map a product line name (e.g. "Magic: The Gathering") to the URL slug needed for search filters (e.g. "magic").
+
+**Endpoint:** `GET /v1/search/productLines`  
+**Base:** Search API
+
+### Response
+
+Returns a JSON array of product line objects:
+
+```json
+[
+  {
+    "productLineId": 1,
+    "productLineName": "Magic: The Gathering",
+    "productLineUrlName": "magic",
+    "isDirect": true
+  },
+  {
+    "productLineId": 2,
+    "productLineName": "YuGiOh",
+    "productLineUrlName": "yugioh",
+    "isDirect": true
+  },
+  {
+    "productLineId": 3,
+    "productLineName": "Pokemon",
+    "productLineUrlName": "pokemon",
+    "isDirect": true
+  }
+]
+```
+
+### Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `productLineId` | number | Unique ID for the product line |
+| `productLineName` | string | Display name (e.g. "Magic: The Gathering") |
+| `productLineUrlName` | string | URL slug used in search filters (e.g. "magic") |
+| `isDirect` | boolean | Whether TCGPlayer Direct is available for this product line |
+
+### Usage in TCGmizer
+
+The `productLineUrlName` is the value used in the Product Search filter `filters.term.productLineName`. For example, to restrict search to Magic: The Gathering cards, set `productLineName: ["magic"]`.
+
+TCGmizer fetches this list once and caches it for the session. The `productLineName` from cart items (extracted from the DOM's set info string, e.g. "Lorwyn Eclipsed, **Magic: The Gathering**, R, 349") is matched case-insensitively against `productLineName` to find the corresponding `productLineUrlName` slug.
+
+---
+
+## 9. Other Observed Endpoints
 
 These endpoints were observed in TCGPlayer's network traffic but are not currently used by TCGmizer:
 
@@ -624,7 +715,6 @@ These endpoints were observed in TCGPlayer's network traffic but are not current
 | `/v1/product/categoryfilters?categoryId=1` | GET | Category-specific filters |
 | `/v2/user` | GET | Current user info |
 | `/v2/kickbacks?active=true` | GET | Active promotions/kickbacks |
-| `/v1/search/productLines` | GET | All product lines (games) |
 | `/v2/address/countryCodes` | GET | Supported countries |
 | `/v1/product/latestsets/{lineIds}` | GET | Latest sets per product line |
 

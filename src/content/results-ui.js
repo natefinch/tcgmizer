@@ -231,6 +231,7 @@ export function showConfig(options, onSolve) {
 
     <div class="tcgmizer-config-actions">
       <button class="tcgmizer-btn tcgmizer-btn-primary tcgmizer-run-solver">Run Optimizer</button>
+      ${DEBUG_MODE ? '<button class="tcgmizer-btn tcgmizer-dump-data" style="background:#6c5ce7;color:#fff;margin-top:6px;">Dump Data (Debug)</button>' : ''}
       <button class="tcgmizer-btn tcgmizer-refetch">Re-fetch Listings</button>
     </div>
   `;
@@ -364,6 +365,37 @@ export function showConfig(options, onSolve) {
 
     if (typeof onSolve === 'function') onSolve(config);
   });
+
+  // Debug dump button (only present in debug builds)
+  const dumpBtn = configDiv.querySelector('.tcgmizer-dump-data');
+  if (dumpBtn) {
+    dumpBtn.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'DUMP_DATA' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[TCGmizer Debug] Dump failed:', chrome.runtime.lastError.message);
+          alert('Dump failed: ' + chrome.runtime.lastError.message);
+          return;
+        }
+        if (response?.error) {
+          alert('Dump failed: ' + response.error);
+          return;
+        }
+        if (response?.data) {
+          const json = JSON.stringify(response.data, null, 2);
+          const blob = new Blob([json], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `tcgmizer-dump-${Date.now()}.json`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          console.log(`[TCGmizer Debug] Dumped ${json.length} bytes`);
+        }
+      });
+    });
+  }
 
   // Re-fetch button
   configDiv.querySelector('.tcgmizer-refetch').addEventListener('click', () => {

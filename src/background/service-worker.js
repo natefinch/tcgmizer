@@ -4,10 +4,12 @@
  * Loads HiGHS WASM solver directly (no offscreen document needed).
  */
 
-import { MSG, STAGE, DEFAULT_SOLVER_TIMEOUT_S, MAX_ALTERNATIVE_PRINTINGS } from '../shared/constants.js';
+import { MSG, STAGE, DEFAULT_SOLVER_TIMEOUT_S, DEFAULT_TOP_K_LISTINGS, MAX_ALTERNATIVE_PRINTINGS } from '../shared/constants.js';
 import { buildLP } from '../shared/ilp-builder.js';
 import { parseSolution } from '../shared/solution-parser.js';
-import { fetchAllListings, searchProductsByName, searchAllCardPrintings } from './fetcher.js';
+import { remapDirectListings } from '../shared/direct-remapper.js';
+import { fetchAllListings, searchProductsByName, searchAllCardPrintings, lookupProductLineSlug } from './fetcher.js';
+import { clearSellerCache } from './seller-cache.js';
 
 // --- HiGHS Solver ---
 // importScripts MUST use static string paths in MV3 service workers.
@@ -215,6 +217,23 @@ async function runFetchPhase(tabId, cartData) {
     const cardNameToProductIds = new Map(); // cardName → Set<productId>
     const productIdToSetName = new Map();
 
+    // Detect product line from cart items' setName (e.g. "Set Name, Magic: The Gathering, R, 349")
+    let detectedProductLineSlug = null;
+    for (const item of resolvedItems) {
+      if (item.setName && item.setName.includes(',')) {
+        const parts = item.setName.split(',').map(s => s.trim());
+        // Product line name is typically the second field
+        if (parts.length >= 2) {
+          const slug = await lookupProductLineSlug(parts[1]);
+          if (slug) {
+            detectedProductLineSlug = slug;
+            console.log(`[TCGmizer SW] Detected product line: "${parts[1]}" → "${slug}"`);
+            break;
+          }
+        }
+      }
+    }
+
     // Seed with original cart products
     for (const item of resolvedItems) {
       if (!cardNameToProductIds.has(item.cardName)) {
@@ -231,6 +250,7 @@ async function runFetchPhase(tabId, cartData) {
     });
 
     const printingsResult = await searchAllCardPrintings(uniqueCardNames, seenProducts, {
+      productLineName: detectedProductLineSlug,
       onProgress: ({ current, total }) => {
         sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
           message: 'Searching for alternative printings...',
@@ -459,16 +479,22 @@ async function runSolvePhase(tabId, config) {
       console.warn(`[TCGmizer SW] ${badSellers.length} sellers have NaN shipping data:`, badSellers.map(k => `${sellers[k].sellerName} (shipping=${sellers[k].shippingCost}, threshold=${sellers[k].freeShippingThreshold})`));
     }
 
+    // Remap Direct listings to a synthetic seller so the ILP models them
+    // as a single seller with shared $3.99 shipping / $50 free threshold.
+    const directRemapped = remapDirectListings(filteredListings, sellers);
+    const solveListings = directRemapped.listings;
+    const solveSellers = directRemapped.sellers;
+
     // Build fallback listings map so the cart modifier can retry failed items
     const fallbackMap = buildFallbackMap(cardSlots, filteredListings, sellers);
     console.log(`[TCGmizer SW] Built fallback map: ${Object.keys(fallbackMap).length} cards with fallbacks`);
 
     if (config.minimizeVendors) {
       // Multi-solve mode: find optimal, then try fewer vendors
-      await runMultiSolve(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config, fallbackMap);
+      await runMultiSolve(tabId, cardSlots, solveSellers, solveListings, currentCartTotal, config, fallbackMap);
     } else {
       // Single solve — optimize for price first, then minimize vendors at that price
-      const result = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config.maxSellers || null);
+      const result = await solveSingle(tabId, cardSlots, solveSellers, solveListings, currentCartTotal, config.maxSellers || null);
       if (result && result.success) {
         // Try to reduce vendor count without increasing price
         const optimalCost = result.totalCost;
@@ -479,7 +505,7 @@ async function runSolvePhase(tabId, config) {
             message: `Checking if ${n} vendor${n !== 1 ? 's' : ''} can match price...`,
           });
 
-          const fewer = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, n, true);
+          const fewer = await solveSingle(tabId, cardSlots, solveSellers, solveListings, currentCartTotal, n, true);
           if (!fewer || !fewer.success) break; // Infeasible — can't use fewer vendors
           if (fewer.totalCost > optimalCost + 0.005) break; // More expensive (with floating-point tolerance)
 
@@ -510,15 +536,91 @@ async function runSolvePhase(tabId, config) {
 }
 
 /**
+ * Pick an initial topK based on cart size and whether maxSellers is set.
+ *
+ * When maxSellers is set, the pre-filter (prefilterForMinVendors) reduces the
+ * solver's seller pool to ~30-100 sellers, so the model stays small even with
+ * high topK. Without maxSellers, the full seller pool is used and topK must
+ * be limited to avoid model sizes that crash the WASM solver.
+ *
+ * The retry mechanism (solveSingle) will shrink topK on WASM crashes, so these
+ * values are aggressive starting points.
+ */
+function adaptiveTopK(numSlots, maxSellers) {
+  // When maxSellers is set, the pre-filter keeps the model small — use higher topK
+  if (maxSellers != null) {
+    if (numSlots <= 50) return 75;
+    if (numSlots <= 100) return 50;
+    return 30;
+  }
+  // No maxSellers — full seller pool, topK is the main size lever
+  if (numSlots <= 30) return DEFAULT_TOP_K_LISTINGS;  // 40
+  if (numSlots <= 60) return 30;
+  if (numSlots <= 100) return 20;
+  return 15;
+}
+
+/**
  * Run a single ILP solve with optional maxSellers constraint.
- * Returns the parsed result, or null if it sent an error to the tab.
+ * Uses adaptive topK scaling and retries with reduced topK on WASM crashes.
+ * Returns the parsed result, or null if infeasible/error.
  */
 async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, maxSellers, silent = false) {
+  // When maxSellers is set, the ILP is much harder (tight constraint makes
+  // branch-and-bound exponentially harder). Allow more retries and shrink faster.
+  const MAX_RETRIES = maxSellers ? 4 : 2;
+  const RETRY_SHRINK = maxSellers ? 0.5 : 0.6;
+
+  let topK = adaptiveTopK(cardSlots.length, maxSellers);
+  console.log(`[TCGmizer SW] solveSingle: ${cardSlots.length} slots → initial topK=${topK}, maxSellers=${maxSellers}, maxRetries=${MAX_RETRIES}`);
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const result = await solveSingleAttempt(
+      tabId, cardSlots, sellers, filteredListings, currentCartTotal,
+      maxSellers, topK, silent || attempt > 0  // silence retries to avoid double error messages
+    );
+
+    // 'WASM_ERROR' signals a crash that can be retried with a smaller model
+    if (result === 'WASM_ERROR') {
+      const nextTopK = Math.max(5, Math.floor(topK * RETRY_SHRINK));
+      if (nextTopK >= topK) {
+        // Can't shrink further
+        console.error(`[TCGmizer SW] WASM crash at topK=${topK}, cannot reduce further`);
+        break;
+      }
+      console.warn(`[TCGmizer SW] WASM crash with topK=${topK}, retrying with topK=${nextTopK} (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      if (!silent) {
+        sendProgress(tabId, STAGE.SOLVING, {
+          message: `Solver crashed, retrying with reduced model (attempt ${attempt + 2})...`,
+        });
+      }
+      topK = nextTopK;
+      continue;
+    }
+
+    return result; // success, infeasible (null), or error (null)
+  }
+
+  // All retries exhausted
+  if (!silent) {
+    sendToTab(tabId, {
+      type: MSG.OPTIMIZATION_ERROR,
+      error: 'Solver crashed repeatedly. Try reducing the number of items in your cart or enabling "Exact printings only".',
+    });
+  }
+  return null;
+}
+
+/**
+ * Single attempt at solving with a given topK.
+ * Returns parsed result, null (infeasible), or the string 'WASM_ERROR' if HiGHS crashed.
+ */
+async function solveSingleAttempt(tabId, cardSlots, sellers, filteredListings, currentCartTotal, maxSellers, topK, silent) {
   if (!silent) {
     sendProgress(tabId, STAGE.BUILDING_ILP, { message: maxSellers ? `Building model (max ${maxSellers} vendors)...` : 'Building optimization model...' });
   }
 
-  console.log(`[TCGmizer SW] solveSingle: ${cardSlots.length} slots, ${filteredListings.length} listings, ${Object.keys(sellers).length} sellers, maxSellers=${maxSellers}`);
+  console.log(`[TCGmizer SW] solveSingleAttempt: ${cardSlots.length} slots, ${filteredListings.length} listings, ${Object.keys(sellers).length} sellers, maxSellers=${maxSellers}, topK=${topK}`);
 
   // Validate inputs
   const listingsBySlot = new Map();
@@ -537,7 +639,7 @@ async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentC
       cardSlots,
       sellers,
       listings: filteredListings,
-      options: { maxSellers },
+      options: { maxSellers, topK },
     });
   } catch (err) {
     console.error('[TCGmizer SW] buildLP error:', err);
@@ -563,6 +665,17 @@ async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentC
     console.error('[TCGmizer SW] Solver error:', solveErr);
     console.error(`[TCGmizer SW] LP string that failed (first 1000 chars):\n${lp.substring(0, 1000)}`);
     console.error(`[TCGmizer SW] LP string tail (last 300 chars):\n${lp.substring(lp.length - 300)}`);
+
+    // Detect WASM crash (memory/abort) — reset the corrupted HiGHS instance
+    const msg = String(solveErr?.message || solveErr);
+    if (msg.includes('RuntimeError') || msg.includes('Aborted') || msg.includes('signature mismatch') || msg.includes('out of memory')) {
+      // Reset HiGHS instance — it's likely corrupted after a WASM crash
+      highs = null;
+      highsLoading = null;
+      // Signal caller to retry with a smaller model
+      return 'WASM_ERROR';
+    }
+
     if (!silent) {
       sendToTab(tabId, {
         type: MSG.OPTIMIZATION_ERROR,
@@ -718,22 +831,41 @@ function buildFallbackMap(cardSlots, filteredListings, sellers) {
   return result;
 }
 
-// --- Per-tab cache using chrome.storage.session (survives SW restarts) ---
+// --- Per-tab cache using in-memory + chrome.storage.session fallback ---
+// In-memory cache is always used. Session storage is best-effort for surviving
+// service worker restarts, but has a 10MB quota that large carts can exceed.
+
+const inMemoryCache = new Map();
 
 async function saveTabCache(tabId, data) {
+  // Always save to in-memory cache (no size limit)
+  inMemoryCache.set(tabId, data);
+
+  // Try session storage as a fallback (survives SW restarts)
   try {
     await chrome.storage.session.set({ [`tcgmizer_cache_${tabId}`]: data });
-    console.log(`[TCGmizer SW] Cached ${data.allListings.length} listings for tab ${tabId}`);
+    console.log(`[TCGmizer SW] Cached ${data.allListings.length} listings for tab ${tabId} (memory + session storage)`);
   } catch (err) {
-    console.error('[TCGmizer SW] Failed to save cache:', err);
+    // Session storage quota exceeded — in-memory cache is still valid
+    console.warn(`[TCGmizer SW] Session storage quota exceeded (${data.allListings.length} listings). Using in-memory cache only.`);
   }
 }
 
 async function loadTabCache(tabId) {
+  // Try in-memory cache first (fastest, no size limit)
+  const memCached = inMemoryCache.get(tabId);
+  if (memCached) return memCached;
+
+  // Fall back to session storage (survives SW restarts)
   try {
     const key = `tcgmizer_cache_${tabId}`;
     const result = await chrome.storage.session.get(key);
-    return result[key] || null;
+    const data = result[key] || null;
+    if (data) {
+      // Populate in-memory cache for faster subsequent access
+      inMemoryCache.set(tabId, data);
+    }
+    return data;
   } catch (err) {
     console.error('[TCGmizer SW] Failed to load cache:', err);
     return null;
@@ -768,6 +900,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
       }
       return false;
+
+    case MSG.CLEAR_SELLER_CACHE:
+      clearSellerCache().then(() => {
+        sendResponse({ ok: true });
+      }).catch(err => {
+        sendResponse({ error: err.message });
+      });
+      return true; // keep message channel open for async sendResponse
+
+    case MSG.DUMP_DATA:
+      if (!tabId) {
+        sendResponse({ error: 'No tab ID' });
+        return false;
+      }
+      loadTabCache(tabId).then(cached => {
+        if (!cached) {
+          sendResponse({ error: 'No cached data. Run "Optimize Cart" first.' });
+          return;
+        }
+        sendResponse({
+          data: {
+            cardSlots: cached.cardSlots,
+            allListings: cached.allListings,
+            sellers: cached.sellers,
+            currentCartTotal: cached.currentCartTotal,
+          },
+        });
+      }).catch(err => {
+        sendResponse({ error: err.message });
+      });
+      return true; // keep message channel open for async sendResponse
 
     default:
       return false;

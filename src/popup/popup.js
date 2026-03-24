@@ -9,6 +9,25 @@ document.addEventListener('DOMContentLoaded', () => {
     window.close();
   });
 
+  // Clear seller cache button
+  const clearCacheBtn = document.getElementById('clear-cache-btn');
+  clearCacheBtn.addEventListener('click', async () => {
+    clearCacheBtn.disabled = true;
+    clearCacheBtn.textContent = 'Clearing...';
+    try {
+      await chrome.runtime.sendMessage({ type: 'CLEAR_SELLER_CACHE' });
+      clearCacheBtn.textContent = 'Cache Cleared!';
+      setTimeout(() => {
+        clearCacheBtn.textContent = 'Clear Seller Cache';
+        clearCacheBtn.disabled = false;
+      }, 1500);
+    } catch (err) {
+      console.error('[TCGmizer Popup] Failed to clear cache:', err);
+      clearCacheBtn.textContent = 'Clear Seller Cache';
+      clearCacheBtn.disabled = false;
+    }
+  });
+
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
     const isCartPage = tab && tab.url && tab.url.includes('tcgplayer.com/cart');

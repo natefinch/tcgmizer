@@ -1,5 +1,3 @@
-import { TCGPLAYER_DIRECT_SHIPPING_COST, TCGPLAYER_DIRECT_FREE_SHIPPING_THRESHOLD } from './constants.js';
-
 /**
  * Parses a HiGHS solution object into a structured cart optimization result.
  *
@@ -68,35 +66,16 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
       directSeller: listing.directSeller || false,
       directListing: listing.directListing || false,
       customListingKey: listing.customListingKey || null,
+      // Preserve original seller info for Direct listings (remapped to synthetic seller for ILP)
+      originalSellerId: listing.originalSellerId || null,
+      originalSellerKey: listing.originalSellerKey || null,
+      originalSellerNumericId: listing.originalSellerNumericId || null,
+      originalSellerName: listing.originalSellerName || null,
     });
     entry.subtotal += listing.price;
   }
 
-  // --- TCGPlayer Direct grouping ---
-  // If ALL items from a seller are directListing, those items move to a
-  // consolidated "TCGPlayer Direct" group. If a seller has mixed direct/non-direct,
-  // all items stay with the seller and use the seller's own shipping.
-  const directItems = [];
-  let directSubtotal = 0;
-  const sellersToRemove = new Set();
-
-  for (const [sellerId, data] of sellerMap) {
-    const allDirect = data.items.every(item => item.directListing);
-    if (allDirect) {
-      for (const item of data.items) {
-        directItems.push(item);
-      }
-      directSubtotal += data.subtotal;
-      sellersToRemove.add(sellerId);
-    }
-  }
-
-  // Remove all-direct sellers from the main sellerMap
-  for (const sellerId of sellersToRemove) {
-    sellerMap.delete(sellerId);
-  }
-
-  // Calculate shipping for remaining (non-direct) sellers
+  // Calculate shipping
   let totalItemCost = 0;
   let totalShipping = 0;
   const sellerResults = [];
@@ -113,6 +92,9 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
     totalItemCost += data.subtotal;
     totalShipping += actualShipping;
 
+    // The synthetic Direct seller (from ILP remapping) is marked isDirect
+    const isDirect = sellerId === '__tcgplayer_direct__';
+
     sellerResults.push({
       sellerId,
       sellerName,
@@ -124,38 +106,15 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
       freeShipping,
       freeShippingThreshold: threshold,
       sellerTotal: roundCents(data.subtotal + actualShipping),
+      isDirect,
     });
   }
 
-  // Add TCGPlayer Direct group if there are any direct items
-  if (directItems.length > 0) {
-    const directFreeShipping = directSubtotal >= TCGPLAYER_DIRECT_FREE_SHIPPING_THRESHOLD;
-    const directShipping = directFreeShipping ? 0 : TCGPLAYER_DIRECT_SHIPPING_COST;
-
-    totalItemCost += directSubtotal;
-    totalShipping += directShipping;
-
-    // Insert at the beginning so it appears at the top
-    sellerResults.unshift({
-      sellerId: '__tcgplayer_direct__',
-      sellerName: 'TCGplayer Direct',
-      sellerNumericId: null,
-      sellerKey: '__tcgplayer_direct__',
-      items: directItems,
-      subtotal: roundCents(directSubtotal),
-      shippingCost: roundCents(directShipping),
-      freeShipping: directFreeShipping,
-      freeShippingThreshold: TCGPLAYER_DIRECT_FREE_SHIPPING_THRESHOLD,
-      sellerTotal: roundCents(directSubtotal + directShipping),
-      isDirect: true,
-    });
-  }
-
-  // Sort non-direct sellers by total descending for readability
-  // (Direct group stays at top since we unshifted it)
-  const directGroup = directItems.length > 0 ? sellerResults.shift() : null;
-  sellerResults.sort((a, b) => b.sellerTotal - a.sellerTotal);
-  if (directGroup) sellerResults.unshift(directGroup);
+  // Sort sellers: Direct group first, then by total descending
+  sellerResults.sort((a, b) => {
+    if (a.isDirect !== b.isDirect) return a.isDirect ? -1 : 1;
+    return b.sellerTotal - a.sellerTotal;
+  });
 
   // Flag sellers below TCGPlayer's $1 minimum order
   const warnings = [];

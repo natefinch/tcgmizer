@@ -6,7 +6,7 @@ export const DEFAULT_FETCH_DELAY_MS = 100;
 export const DEFAULT_MAX_LISTINGS_PER_CARD = 50;
 export const DEFAULT_FETCH_CONCURRENCY = 5;
 export const MAX_ALTERNATIVE_PRINTINGS = 5; // max alt printings to fetch per card name
-export const DEFAULT_TOP_K_LISTINGS = 25; // kept for ILP after pruning
+export const DEFAULT_TOP_K_LISTINGS = 40; // kept for ILP after pruning
 export const DEFAULT_SOLVER_TIMEOUT_S = 30;
 export const LISTINGS_PER_PAGE = 50;
 export const SEARCH_RESULTS_PER_PAGE = 50; // TCGPlayer search API max page size
@@ -17,6 +17,7 @@ export const MSG = {
   START_OPTIMIZATION: 'START_OPTIMIZATION',
   SOLVE_WITH_CONFIG: 'SOLVE_WITH_CONFIG',
   APPLY_CART: 'APPLY_CART',
+  DUMP_DATA: 'DUMP_DATA',
 
   // Background → Content
   OPTIMIZATION_PROGRESS: 'OPTIMIZATION_PROGRESS',
@@ -27,6 +28,9 @@ export const MSG = {
 
   // Popup → Content
   TOGGLE_PANEL: 'TOGGLE_PANEL',
+
+  // Popup → Background
+  CLEAR_SELLER_CACHE: 'CLEAR_SELLER_CACHE',
 };
 
 // Optimization progress stages
