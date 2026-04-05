@@ -28,6 +28,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Clear printings cache button
+  const clearPrintingsBtn = document.getElementById('clear-printings-cache-btn');
+  clearPrintingsBtn.addEventListener('click', async () => {
+    clearPrintingsBtn.disabled = true;
+    clearPrintingsBtn.textContent = 'Clearing...';
+    try {
+      await chrome.runtime.sendMessage({ type: 'CLEAR_PRINTINGS_CACHE' });
+      clearPrintingsBtn.textContent = 'Cache Cleared!';
+      setTimeout(() => {
+        clearPrintingsBtn.textContent = 'Clear Printings Cache';
+        clearPrintingsBtn.disabled = false;
+      }, 1500);
+    } catch (err) {
+      console.error('[TCGmizer Popup] Failed to clear printings cache:', err);
+      clearPrintingsBtn.textContent = 'Clear Printings Cache';
+      clearPrintingsBtn.disabled = false;
+    }
+  });
+
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
     const isCartPage = tab && tab.url && tab.url.includes('tcgplayer.com/cart');

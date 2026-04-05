@@ -380,7 +380,7 @@ function formatCoeff(n) {
  * Remove listings that are far above the median price for their slot.
  *
  * For each slot, computes the median listing price and removes any listing
- * priced above 3× the median. This eliminates expensive printings/versions
+ * priced above 2× the median. This eliminates expensive printings/versions
  * that would never be part of an optimal solution but whose sellers add
  * y/z variables and constraints to the ILP.
  *
@@ -390,7 +390,7 @@ function formatCoeff(n) {
  * @param {Map<string, Array>} listingsBySlot - slotId → sorted listings array (mutated in place)
  */
 function pruneExpensiveListings(listingsBySlot) {
-  const PRICE_MULTIPLIER = 3; // keep listings up to 3× median
+  const PRICE_MULTIPLIER = 2; // keep listings up to 2× median
   const MIN_KEEP = 3;         // never prune below this many per slot
 
   let totalBefore = 0;
@@ -456,10 +456,11 @@ function pruneExpensiveListings(listingsBySlot) {
  * slots with few sellers. This pre-filter selects sellers that cover the most
  * slots (a coverage-aware approach), keeping the model small and feasible.
  *
- * The candidate pool includes:
- *  - Sellers ranked by number of unique slots they cover (top N)
- *  - The cheapest listing per slot (regardless of seller, for price floor)
- *  - Always includes the synthetic Direct seller (__tcgplayer_direct__)
+ * The candidate pool includes (all counting against the pool budget):
+ *  - The synthetic Direct seller (__tcgplayer_direct__) if present
+ *  - Greedy set-cover sellers for full slot coverage
+ *  - The cheapest listing's seller per slot (for price floor)
+ *  - Additional sellers ranked by coverage to fill remaining budget
  *
  * @param {Array} listings - All available listings
  * @param {Array} cardSlots - Card slots to cover
@@ -528,18 +529,8 @@ function prefilterForMinVendors(listings, cardSlots, maxSellers) {
     availableSellers.delete(bestSeller);
   }
 
-  // Step 3: Add more sellers up to CANDIDATE_POOL, ranked by coverage
-  const ranked = [...sellerSlots.entries()]
-    .filter(([sid]) => !candidateSellers.has(sid))
-    .map(([sellerId, slots]) => ({ sellerId, coverage: slots.size }))
-    .sort((a, b) => b.coverage - a.coverage);
-
-  const remaining = CANDIDATE_POOL - candidateSellers.size;
-  for (let i = 0; i < Math.min(ranked.length, remaining); i++) {
-    candidateSellers.add(ranked[i].sellerId);
-  }
-
-  // Step 4: Ensure cheapest listing per slot is included (for price floor)
+  // Step 3: Ensure cheapest listing per slot is included (for price floor).
+  // These count against the CANDIDATE_POOL budget so they don't blow past it.
   const cheapestPerSlot = new Map(); // slotId → listing
   for (const l of listings) {
     if (!slotIds.has(l.slotId)) continue;
@@ -550,6 +541,19 @@ function prefilterForMinVendors(listings, cardSlots, maxSellers) {
   }
   for (const [, l] of cheapestPerSlot) {
     candidateSellers.add(l.sellerId);
+  }
+
+  // Step 4: Add more sellers up to CANDIDATE_POOL, ranked by coverage
+  if (candidateSellers.size < CANDIDATE_POOL) {
+    const ranked = [...sellerSlots.entries()]
+      .filter(([sid]) => !candidateSellers.has(sid))
+      .map(([sellerId, slots]) => ({ sellerId, coverage: slots.size }))
+      .sort((a, b) => b.coverage - a.coverage);
+
+    const remaining = CANDIDATE_POOL - candidateSellers.size;
+    for (let i = 0; i < Math.min(ranked.length, remaining); i++) {
+      candidateSellers.add(ranked[i].sellerId);
+    }
   }
 
   // Step 5: Filter listings to only those from candidate sellers

@@ -4,12 +4,16 @@
  * Loads HiGHS WASM solver directly (no offscreen document needed).
  */
 
-import { MSG, STAGE, DEFAULT_SOLVER_TIMEOUT_S, DEFAULT_TOP_K_LISTINGS, MAX_ALTERNATIVE_PRINTINGS } from '../shared/constants.js';
+import { MSG, STAGE, DEFAULT_SOLVER_TIMEOUT_S, DEFAULT_TOP_K_LISTINGS, MAX_ALTERNATIVE_PRINTINGS, DEFAULT_CARD_EXCLUSIONS } from '../shared/constants.js';
 import { buildLP } from '../shared/ilp-builder.js';
 import { parseSolution } from '../shared/solution-parser.js';
 import { remapDirectListings } from '../shared/direct-remapper.js';
 import { fetchAllListings, searchProductsByName, searchAllCardPrintings, lookupProductLineSlug } from './fetcher.js';
 import { clearSellerCache } from './seller-cache.js';
+import { clearPrintingsCache } from './printings-cache.js';
+
+// Per-tab cancellation tracking
+const cancelledTabs = new Set();
 
 // --- HiGHS Solver ---
 // importScripts MUST use static string paths in MV3 service workers.
@@ -116,6 +120,7 @@ function sendProgress(tabId, stage, detail = {}) {
  * Caches the fetched data per tab so the user can re-solve with different config.
  */
 async function runFetchPhase(tabId, cartData) {
+  cancelledTabs.delete(tabId);
   try {
     const { cartItems, currentCartTotal } = cartData;
 
@@ -249,8 +254,18 @@ async function runFetchPhase(tabId, cartData) {
       total: uniqueCardNames.length,
     });
 
+    // Load card exclusion settings for alternate-printing filtering
+    const [settingsData, patternsData] = await Promise.all([
+      chrome.storage.local.get('optimizerSettings'),
+      chrome.storage.sync.get('cardExclusions'),
+    ]);
+    const cardExclusionsEnabled = settingsData.optimizerSettings?.cardExclusionsEnabled ?? true;
+    const cardExclusions = patternsData.cardExclusions ?? DEFAULT_CARD_EXCLUSIONS;
+    const excludePatterns = cardExclusionsEnabled ? cardExclusions : [];
+
     const printingsResult = await searchAllCardPrintings(uniqueCardNames, seenProducts, {
       productLineName: detectedProductLineSlug,
+      excludePatterns,
       onProgress: ({ current, total }) => {
         sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
           message: 'Searching for alternative printings...',
@@ -258,9 +273,16 @@ async function runFetchPhase(tabId, cartData) {
           total,
         });
       },
+      shouldCancel: () => cancelledTabs.has(tabId),
     });
 
+    if (cancelledTabs.has(tabId)) {
+      console.log(`[TCGmizer SW] Fetch phase cancelled for tab ${tabId}`);
+      return;
+    }
+
     // Merge printings results into our maps
+    const productIdToProductName = new Map();
     for (const [name, productIds] of printingsResult.cardNameToProductIds) {
       if (!cardNameToProductIds.has(name)) {
         cardNameToProductIds.set(name, productIds);
@@ -270,6 +292,9 @@ async function runFetchPhase(tabId, cartData) {
     }
     for (const [id, setName] of printingsResult.productIdToSetName) {
       if (!productIdToSetName.has(id)) productIdToSetName.set(id, setName);
+    }
+    for (const [id, prodName] of printingsResult.productIdToProductName) {
+      productIdToProductName.set(id, prodName);
     }
     for (const pc of printingsResult.productCards) {
       seenProducts.add(pc.productId);
@@ -306,7 +331,13 @@ async function runFetchPhase(tabId, cartData) {
           total,
         });
       },
+      shouldCancel: () => cancelledTabs.has(tabId),
     });
+
+    if (cancelledTabs.has(tabId)) {
+      console.log(`[TCGmizer SW] Fetch phase cancelled for tab ${tabId}`);
+      return;
+    }
 
     // Pre-index rawListings by productId for O(1) lookup instead of O(n) scan per slot
     const listingsByProduct = new Map();
@@ -350,7 +381,9 @@ async function runFetchPhase(tabId, cartData) {
     console.log(`[TCGmizer SW] Fetched ${rawListings.length} raw listings from ${Object.keys(sellers).length} sellers, expanded to ${allListings.length} slot-listings`);
 
     // Cache for re-solving with different config (persists across SW restarts)
-    await saveTabCache(tabId, { cardSlots, allListings, sellers, currentCartTotal });
+    // Convert Map to Object for JSON serialization in chrome.storage
+    const productNames = Object.fromEntries(productIdToProductName);
+    await saveTabCache(tabId, { cardSlots, allListings, sellers, currentCartTotal, productNames });
 
     // Discover available options from the listings
     const availableLanguages = new Set();
@@ -405,6 +438,7 @@ function conditionSort(a, b) {
  * If config.minimizeVendors is true, runs multiple solves to find the vendor/price tradeoff.
  */
 async function runSolvePhase(tabId, config) {
+  cancelledTabs.delete(tabId);
   try {
     const cached = await loadTabCache(tabId);
     if (!cached) {
@@ -415,7 +449,7 @@ async function runSolvePhase(tabId, config) {
       return;
     }
 
-    const { cardSlots, allListings, sellers, currentCartTotal } = cached;
+    const { cardSlots, allListings, sellers, currentCartTotal, productNames } = cached;
 
     console.log(`[TCGmizer SW] Solve phase starting: ${cardSlots.length} slots, ${allListings.length} cached listings, ${Object.keys(sellers).length} sellers, config:`, JSON.stringify(config));
 
@@ -423,6 +457,37 @@ async function runSolvePhase(tabId, config) {
 
     // Apply filters
     let filteredListings = allListings;
+
+    // Card exclusion filter: re-check current patterns from storage at solve time
+    // so that newly added patterns take effect without re-fetching
+    if (productNames) {
+      const [settingsData, patternsData] = await Promise.all([
+        chrome.storage.local.get('optimizerSettings'),
+        chrome.storage.sync.get('cardExclusions'),
+      ]);
+      const cardExclusionsEnabled = settingsData.optimizerSettings?.cardExclusionsEnabled ?? true;
+      const rawPatterns = patternsData.cardExclusions ?? DEFAULT_CARD_EXCLUSIONS;
+      if (cardExclusionsEnabled && rawPatterns.length > 0) {
+        const patterns = rawPatterns.map(p => p.toLowerCase().trim()).filter(p => p.length > 0);
+        // Build set of excluded product IDs from the original cart items
+        const originalProductIds = new Set(cardSlots.map(s => s.productId));
+        const excludedProducts = new Set();
+        for (const [pid, pName] of Object.entries(productNames)) {
+          const id = typeof pid === 'string' ? parseInt(pid, 10) : pid;
+          // Never exclude the user's original cart items
+          if (originalProductIds.has(id)) continue;
+          const lower = pName.toLowerCase();
+          if (patterns.some(pat => lower.includes(pat))) {
+            excludedProducts.add(id);
+          }
+        }
+        if (excludedProducts.size > 0) {
+          const before = filteredListings.length;
+          filteredListings = filteredListings.filter(l => !excludedProducts.has(l.productId));
+          console.log(`[TCGmizer SW] Card exclusion filter: ${before} → ${filteredListings.length} listings (excluded ${excludedProducts.size} products)`);
+        }
+      }
+    }
 
     if (config.languages && config.languages.length > 0) {
       const langSet = new Set(config.languages);
@@ -506,6 +571,10 @@ async function runSolvePhase(tabId, config) {
           });
 
           const fewer = await solveSingle(tabId, cardSlots, solveSellers, solveListings, currentCartTotal, n, true);
+          if (cancelledTabs.has(tabId)) {
+            console.log(`[TCGmizer SW] Solve phase cancelled for tab ${tabId}`);
+            return;
+          }
           if (!fewer || !fewer.success) break; // Infeasible — can't use fewer vendors
           if (fewer.totalCost > optimalCost + 0.005) break; // More expensive (with floating-point tolerance)
 
@@ -538,26 +607,28 @@ async function runSolvePhase(tabId, config) {
 /**
  * Pick an initial topK based on cart size and whether maxSellers is set.
  *
- * When maxSellers is set, the pre-filter (prefilterForMinVendors) reduces the
- * solver's seller pool to ~30-100 sellers, so the model stays small even with
- * high topK. Without maxSellers, the full seller pool is used and topK must
- * be limited to avoid model sizes that crash the WASM solver.
+ * The maxSellers constraint makes the ILP exponentially harder (branch-and-bound
+ * over seller subsets), so vendor-constrained solves should use the SAME or LOWER
+ * topK as the baseline. The pre-filter (prefilterForMinVendors) ensures coverage
+ * with a tight seller pool — higher topK just inflates the model without benefit.
  *
  * The retry mechanism (solveSingle) will shrink topK on WASM crashes, so these
  * values are aggressive starting points.
  */
 function adaptiveTopK(numSlots, maxSellers) {
-  // When maxSellers is set, the pre-filter keeps the model small — use higher topK
+  // Base topK — used for both unconstrained and vendor-constrained solves
+  let topK;
+  if (numSlots <= 30) topK = DEFAULT_TOP_K_LISTINGS;  // 40
+  else if (numSlots <= 60) topK = 30;
+  else if (numSlots <= 100) topK = 20;
+  else topK = 15;
+
+  // When maxSellers is set, the ILP is harder — use same or lower topK
   if (maxSellers != null) {
-    if (numSlots <= 50) return 75;
-    if (numSlots <= 100) return 50;
-    return 30;
+    topK = Math.min(topK, 25);
   }
-  // No maxSellers — full seller pool, topK is the main size lever
-  if (numSlots <= 30) return DEFAULT_TOP_K_LISTINGS;  // 40
-  if (numSlots <= 60) return 30;
-  if (numSlots <= 100) return 20;
-  return 15;
+
+  return topK;
 }
 
 /**
@@ -704,6 +775,10 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
   sendProgress(tabId, STAGE.SOLVING, { message: 'Finding optimal price (no vendor limit)...' });
 
   const baseline = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, maxCap, true);
+  if (cancelledTabs.has(tabId)) {
+    console.log(`[TCGmizer SW] Multi-solve cancelled for tab ${tabId}`);
+    return;
+  }
   if (!baseline || !baseline.success) {
     sendToTab(tabId, {
       type: MSG.OPTIMIZATION_ERROR,
@@ -726,6 +801,10 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
     });
 
     const result = await solveSingle(tabId, cardSlots, sellers, filteredListings, currentCartTotal, n, true);
+    if (cancelledTabs.has(tabId)) {
+      console.log(`[TCGmizer SW] Multi-solve cancelled for tab ${tabId}`);
+      return;
+    }
     if (!result || !result.success) {
       console.log(`[TCGmizer SW] Infeasible at ${n} vendors, stopping`);
       break;
@@ -872,11 +951,47 @@ async function loadTabCache(tabId) {
   }
 }
 
+// --- SPA navigation detection ---
+// TCGPlayer is an SPA, so navigating to /cart doesn't always trigger a full page
+// load (e.g. after bulk-adding cards). Listen for URL changes and inject the
+// content script when needed.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!changeInfo.url) return;
+  const isCart = changeInfo.url.includes('tcgplayer.com/cart');
+  if (!isCart) return;
+
+  // Check if the content script is already loaded before injecting
+  chrome.tabs.sendMessage(tabId, { type: 'PING' }).catch(async () => {
+    // Content script not loaded — inject it
+    console.log(`[TCGmizer SW] SPA navigation to cart detected in tab ${tabId}, injecting content script`);
+    try {
+      await chrome.scripting.insertCSS({
+        target: { tabId },
+        files: ['src/content/results-ui.css'],
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['dist/content.js'],
+      });
+    } catch (err) {
+      console.error(`[TCGmizer SW] Failed to inject content script into tab ${tabId}:`, err);
+    }
+  });
+});
+
 // --- Message listener ---
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab?.id;
 
   switch (message.type) {
+    case MSG.CANCEL_OPTIMIZATION:
+      if (tabId) {
+        cancelledTabs.add(tabId);
+        console.log(`[TCGmizer SW] Cancellation requested for tab ${tabId}`);
+      }
+      sendResponse({ ok: true });
+      return false;
+
     case MSG.START_OPTIMIZATION:
       if (!tabId) {
         sendResponse({ error: 'No tab ID' });
@@ -903,6 +1018,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case MSG.CLEAR_SELLER_CACHE:
       clearSellerCache().then(() => {
+        sendResponse({ ok: true });
+      }).catch(err => {
+        sendResponse({ error: err.message });
+      });
+      return true; // keep message channel open for async sendResponse
+
+    case MSG.CLEAR_PRINTINGS_CACHE:
+      clearPrintingsCache().then(() => {
         sendResponse({ ok: true });
       }).catch(err => {
         sendResponse({ error: err.message });

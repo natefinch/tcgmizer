@@ -14,7 +14,7 @@
 import { MSG, STAGE } from '../shared/constants.js';
 import { readCart } from './cart-reader.js';
 import { applyOptimizedCart, saveCartState } from './cart-modifier.js';
-import { injectUI, onStartClick, showPanel, showProgress, showConfig, showResults, showMultiResults, showError } from './results-ui.js';
+import { injectUI, onStartClick, onCancelClick, showPanel, showProgress, showConfig, cancelToConfig, cancelAndClose, showResults, showMultiResults, showError } from './results-ui.js';
 
 // Guard against duplicate injection (can happen if content script is injected both
 // declaratively via manifest and programmatically for SPA navigations)
@@ -33,9 +33,25 @@ injectUI();
 // Inject "Optimize with TCGmizer" button next to TCGPlayer's own optimize button
 injectCartButton();
 
+// Track current phase for cancel behavior
+let currentPhase = null; // 'fetch' or 'solve'
+let cancelled = false;
+
 // Handle "Optimize Cart" button click
 onStartClick(() => {
   startFetchPhase();
+});
+
+// Handle cancel button click (and X during progress)
+onCancelClick(() => {
+  cancelled = true;
+  chrome.runtime.sendMessage({ type: MSG.CANCEL_OPTIMIZATION });
+  if (currentPhase === 'solve') {
+    cancelToConfig();
+  } else {
+    cancelAndClose();
+  }
+  currentPhase = null;
 });
 
 /**
@@ -91,16 +107,18 @@ function injectCartButton() {
     return true;
   }
 
-  // Try immediately, then observe for SPA-rendered content
-  if (!tryInject()) {
-    const observer = new MutationObserver(() => {
-      if (tryInject()) observer.disconnect();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
+  // Try immediately, then keep observing for SPA re-renders (e.g. bulk add)
+  // that may destroy and recreate the cart DOM.
+  tryInject();
+  const observer = new MutationObserver(() => {
+    tryInject();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 function startFetchPhase() {
+  cancelled = false;
+  currentPhase = 'fetch';
   showProgress('Reading cart...', null, null);
 
   // Read cart items from the page
@@ -147,6 +165,8 @@ function startFetchPhase() {
 }
 
 function handleSolveWithConfig(config) {
+  cancelled = false;
+  currentPhase = 'solve';
   showProgress('Optimizing...', null, null);
 
   chrome.runtime.sendMessage({
@@ -186,6 +206,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case MSG.OPTIMIZATION_PROGRESS:
+      if (cancelled) break;
       showProgress(
         message.message || `${message.stage}...`,
         message.current,
@@ -194,18 +215,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case MSG.LISTINGS_READY:
+      if (cancelled) break;
+      currentPhase = null;
       showConfig(message.options, handleSolveWithConfig);
       break;
 
     case MSG.OPTIMIZATION_RESULT:
+      if (cancelled) break;
+      currentPhase = null;
       showResults(message.result, handleApply);
       break;
 
     case MSG.OPTIMIZATION_MULTI_RESULT:
+      if (cancelled) break;
+      currentPhase = null;
       showMultiResults(message.results, handleApply);
       break;
 
     case MSG.OPTIMIZATION_ERROR:
+      if (cancelled) break;
+      currentPhase = null;
       showError(message.error || 'An unknown error occurred.');
       break;
   }

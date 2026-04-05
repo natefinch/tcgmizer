@@ -1,5 +1,6 @@
 import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, DEFAULT_FETCH_CONCURRENCY, LISTINGS_PER_PAGE, MAX_ALTERNATIVE_PRINTINGS, SEARCH_RESULTS_PER_PAGE } from '../shared/constants.js';
 import { pruneExpiredEntries, getCachedSellers, cacheSellers } from './seller-cache.js';
+import { pruneExpiredEntries as prunePrintingsCache, getCachedPrintings, cachePrintings } from './printings-cache.js';
 
 const SEARCH_API_BASE = 'https://mp-search-api.tcgplayer.com';
 const ROOT_API_BASE = 'https://mpapi.tcgplayer.com';
@@ -76,6 +77,7 @@ export async function fetchAllListings(cards, options = {}) {
   const maxListings = options.maxListingsPerCard || DEFAULT_MAX_LISTINGS_PER_CARD;
   const onProgress = options.onProgress || (() => {});
   const onShippingProgress = options.onShippingProgress || (() => {});
+  const shouldCancel = options.shouldCancel || (() => false);
 
   const allListings = [];
   const sellersMap = {}; // sellerKey → SellerInfo
@@ -149,6 +151,12 @@ export async function fetchAllListings(cards, options = {}) {
     const inflight = new Set();
 
     while (queue.length > 0 || inflight.size > 0) {
+      // Check for cancellation
+      if (shouldCancel()) {
+        console.log('[TCGmizer] Listing fetch cancelled');
+        return { listings: allListings, sellers: sellersMap };
+      }
+
       // Launch requests up to the concurrency limit
       while (queue.length > 0 && inflight.size < concurrency) {
         const product = queue.shift();
@@ -192,6 +200,12 @@ export async function fetchAllListings(cards, options = {}) {
 
   // Fetch shipping thresholds only for uncached sellers
   if (uncachedKeys.length > 0) {
+    // Check for cancellation before starting shipping fetch
+    if (shouldCancel()) {
+      console.log('[TCGmizer] Shipping fetch cancelled');
+      return { listings: allListings, sellers: sellersMap };
+    }
+
     // Build a sub-map of only uncached sellers for the shipping API call
     const uncachedSellersMap = {};
     for (const key of uncachedKeys) {
@@ -520,11 +534,29 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
   const delayMs = options.delayMs ?? DEFAULT_FETCH_DELAY_MS;
   const onProgress = options.onProgress || (() => {});
   const productLineName = options.productLineName || null;
+  const shouldCancel = options.shouldCancel || (() => false);
+  const excludePatterns = (options.excludePatterns || []).map(p => p.toLowerCase().trim()).filter(p => p.length > 0);
 
-  // Collect raw search results concurrently, then process sequentially
+  // --- Printings cache: prune expired entries, serve cached, fetch only uncached ---
+  const printingsCache = await prunePrintingsCache();
+  const { cached: cachedPrintingsMap, uncachedNames } = getCachedPrintings(cardNames, printingsCache);
+
+  // Pre-populate searchResults with cached data
   const searchResults = new Map(); // cardName → printings[]
-  let completedCount = 0;
+  for (const [name, printings] of cachedPrintingsMap) {
+    searchResults.set(name, printings);
+  }
+  if (cachedPrintingsMap.size > 0) {
+    console.log(`[TCGmizer] Used cached printings for ${cachedPrintingsMap.size} card(s)`);
+  }
 
+  // Report cached items as already-completed progress
+  let completedCount = cachedPrintingsMap.size;
+  if (completedCount > 0) {
+    onProgress({ current: completedCount, total: cardNames.length });
+  }
+
+  // Only fetch uncached card names from the API
   async function searchOne(name) {
     try {
       const printings = await searchProductsByName(name, productLineName);
@@ -534,11 +566,19 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
     }
   }
 
-  // Sliding-window concurrent searcher
-  const queue = [...cardNames];
+  const newlyFetched = new Map(); // track new results to cache
+
+  // Sliding-window concurrent searcher (only for uncached names)
+  const queue = [...uncachedNames];
   const inflight = new Set();
 
   while (queue.length > 0 || inflight.size > 0) {
+    // Check for cancellation
+    if (shouldCancel()) {
+      console.log('[TCGmizer] Printings search cancelled');
+      break;
+    }
+
     while (queue.length > 0 && inflight.size < concurrency) {
       const name = queue.shift();
       const promise = (async () => {
@@ -553,6 +593,7 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
           console.warn(`[TCGmizer] Failed to search printings for "${result.name}":`, result.error);
         }
         searchResults.set(result.name, result.printings);
+        newlyFetched.set(result.name, result.printings);
       });
       inflight.add(tracked);
     }
@@ -561,11 +602,19 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
     }
   }
 
+  // Cache newly fetched printings results
+  if (newlyFetched.size > 0) {
+    await cachePrintings(newlyFetched);
+  } else if (cardNames.length > 0) {
+    console.log('[TCGmizer] All printings served from cache');
+  }
+
   // Process results sequentially (same logic as before) to build product lists
   const allowedProductLines = new Set();
   const productCards = [];
   const cardNameToProductIds = new Map();
   const productIdToSetName = new Map();
+  const productIdToProductName = new Map();
   const localSeen = new Set(seenProducts);
 
   for (const name of cardNames) {
@@ -574,6 +623,13 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
     }
 
     const printings = searchResults.get(name) || [];
+
+    // Record all product names for solve-time filtering
+    for (const p of printings) {
+      if (p.productId && p.productName) {
+        productIdToProductName.set(p.productId, p.productName);
+      }
+    }
 
     // Detect product lines from results that match already-known products
     for (const p of printings) {
@@ -588,6 +644,14 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
       // Only include alt printings from the same game/product line as cart items
       if (allowedProductLines.size > 0 && p.productLineId && !allowedProductLines.has(p.productLineId)) {
         continue;
+      }
+
+      // Skip excluded card printings (e.g. "(Display Commander)", "(Art Series)")
+      if (excludePatterns.length > 0) {
+        const pNameLower = (p.productName || '').toLowerCase();
+        if (excludePatterns.some(pat => pNameLower.includes(pat))) {
+          continue;
+        }
       }
 
       if (!localSeen.has(p.productId)) {
@@ -607,7 +671,7 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
     }
   }
 
-  return { productCards, allowedProductLines, cardNameToProductIds, productIdToSetName };
+  return { productCards, allowedProductLines, cardNameToProductIds, productIdToSetName, productIdToProductName };
 }
 
 function sleep(ms) {

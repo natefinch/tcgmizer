@@ -11,11 +11,15 @@ export const DEFAULT_SOLVER_TIMEOUT_S = 30;
 export const LISTINGS_PER_PAGE = 50;
 export const SEARCH_RESULTS_PER_PAGE = 50; // TCGPlayer search API max page size
 
+// Default patterns for card exclusions in alternate printing search
+export const DEFAULT_CARD_EXCLUSIONS = ['(Display Commander)', '(Art Series)'];
+
 // Message types between extension components
 export const MSG = {
   // Content → Background
   START_OPTIMIZATION: 'START_OPTIMIZATION',
   SOLVE_WITH_CONFIG: 'SOLVE_WITH_CONFIG',
+  CANCEL_OPTIMIZATION: 'CANCEL_OPTIMIZATION',
   APPLY_CART: 'APPLY_CART',
   DUMP_DATA: 'DUMP_DATA',
 
@@ -31,6 +35,7 @@ export const MSG = {
 
   // Popup → Background
   CLEAR_SELLER_CACHE: 'CLEAR_SELLER_CACHE',
+  CLEAR_PRINTINGS_CACHE: 'CLEAR_PRINTINGS_CACHE',
 };
 
 // Optimization progress stages

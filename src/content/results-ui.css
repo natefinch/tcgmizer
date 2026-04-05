@@ -142,6 +142,11 @@
   100% { margin-left: 0%; }
 }
 
+/* Cancel button in progress view */
+.tcgmizer-cancel {
+  margin-top: 12px;
+}
+
 /* Results */
 .tcgmizer-summary {
   background: #f0faf4;

@@ -3,7 +3,7 @@
  * Shows optimization progress, results, and apply/undo controls.
  */
 
-import { STAGE } from '../shared/constants.js';
+import { STAGE, DEFAULT_CARD_EXCLUSIONS } from '../shared/constants.js';
 
 const PANEL_ID = 'tcgmizer-panel';
 
@@ -31,6 +31,7 @@ export function injectUI() {
         <div class="tcgmizer-progress-bar-container">
           <div class="tcgmizer-progress-bar"></div>
         </div>
+        <button class="tcgmizer-btn tcgmizer-cancel">Cancel</button>
       </div>
       <div class="tcgmizer-config" style="display:none"></div>
       <div class="tcgmizer-results" style="display:none"></div>
@@ -73,7 +74,19 @@ export function injectUI() {
 
   // Event listeners
   panel.querySelector('.tcgmizer-close').addEventListener('click', () => {
+    // If progress is visible, treat X as cancel
+    const progressEl = panel.querySelector('.tcgmizer-progress');
+    if (progressEl && progressEl.style.display !== 'none') {
+      if (typeof panel._onCancel === 'function') {
+        panel._onCancel();
+        return;
+      }
+    }
     panel.style.display = 'none';
+  });
+
+  panel.querySelector('.tcgmizer-cancel').addEventListener('click', () => {
+    if (typeof panel._onCancel === 'function') panel._onCancel();
   });
 
   panel.querySelector('.tcgmizer-start').addEventListener('click', () => {
@@ -99,6 +112,34 @@ export function injectUI() {
 export function onStartClick(callback) {
   const panel = document.getElementById(PANEL_ID);
   if (panel) panel._onStart = callback;
+}
+
+/**
+ * Set the callback for when the user clicks "Cancel" during progress.
+ */
+export function onCancelClick(callback) {
+  const panel = document.getElementById(PANEL_ID);
+  if (panel) panel._onCancel = callback;
+}
+
+/**
+ * Cancel back to the config screen (used when cancelling during optimization).
+ */
+export function cancelToConfig() {
+  const panel = document.getElementById(PANEL_ID);
+  if (!panel) return;
+  hide(panel, '.tcgmizer-progress');
+  show(panel, '.tcgmizer-config');
+}
+
+/**
+ * Cancel and close the panel (used when cancelling during fetch phase).
+ */
+export function cancelAndClose() {
+  const panel = document.getElementById(PANEL_ID);
+  if (!panel) return;
+  hide(panel, '.tcgmizer-progress');
+  panel.style.display = 'none';
 }
 
 /**
@@ -193,6 +234,14 @@ export function showConfig(options, onSolve) {
       <span class="tcgmizer-config-hint">When unchecked, finds the cheapest printing of each card across all sets</span>
     </div>
 
+    <div class="tcgmizer-config-section tcgmizer-card-exclusion-section">
+      <label class="tcgmizer-checkbox-label">
+        <input type="checkbox" class="tcgmizer-card-exclusions" checked /> Card Exclusions
+      </label>
+      <a href="#" class="tcgmizer-manage-card-exclusions-link" style="font-size:12px;color:#2e9e5e;margin-left:4px;text-decoration:none;cursor:pointer;">Manage</a>
+      <span class="tcgmizer-config-hint">Excludes printings matching configured patterns (e.g. Display Commander). Takes effect on next fetch.</span>
+    </div>
+
     <div class="tcgmizer-config-section">
       <div class="tcgmizer-config-label">Condition</div>
       <div class="tcgmizer-config-options tcgmizer-cond-options">
@@ -266,6 +315,18 @@ export function showConfig(options, onSolve) {
     if (saved.exactPrintings != null) {
       configDiv.querySelector('.tcgmizer-exact-printings').checked = saved.exactPrintings;
     }
+    if (saved.cardExclusionsEnabled != null) {
+      configDiv.querySelector('.tcgmizer-card-exclusions').checked = saved.cardExclusionsEnabled;
+    }
+  });
+
+  // Save cardExclusionsEnabled immediately on change so it's available at fetch time
+  configDiv.querySelector('.tcgmizer-card-exclusions').addEventListener('change', (e) => {
+    chrome.storage.local.get('optimizerSettings', (data) => {
+      const settings = data.optimizerSettings || {};
+      settings.cardExclusionsEnabled = e.target.checked;
+      chrome.storage.local.set({ optimizerSettings: settings });
+    });
   });
 
   // Load banned sellers and update the checkbox
@@ -302,6 +363,12 @@ export function showConfig(options, onSolve) {
     chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' });
   });
 
+  // Manage card exclusions link
+  configDiv.querySelector('.tcgmizer-manage-card-exclusions-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    showCardExclusionsModal(panel);
+  });
+
   // Select all / none links
   configDiv.querySelectorAll('.tcgmizer-select-all').forEach(a => {
     a.addEventListener('click', (e) => {
@@ -330,6 +397,7 @@ export function showConfig(options, onSolve) {
     const minimizeVendors = configDiv.querySelector('.tcgmizer-minimize-vendors').checked;
     const maxCuts = parseInt(configDiv.querySelector('.tcgmizer-max-cuts').value, 10) || 0;
     const exactPrintings = configDiv.querySelector('.tcgmizer-exact-printings').checked;
+    const cardExclusionsEnabled = configDiv.querySelector('.tcgmizer-card-exclusions').checked;
 
     const excludeBannedCheckbox = configDiv.querySelector('.tcgmizer-exclude-banned');
     const bannedSellerKeys = (excludeBannedCheckbox.checked && excludeBannedCheckbox._bannedKeys) ? excludeBannedCheckbox._bannedKeys : [];
@@ -351,6 +419,7 @@ export function showConfig(options, onSolve) {
         minimizeVendors,
         maxCuts,
         exactPrintings,
+        cardExclusionsEnabled,
       },
     });
 
@@ -756,4 +825,103 @@ function cleanSetName(setName) {
     return true;
   });
   return filtered.join(', ') || parts[0];
+}
+
+/**
+ * Show a modal for managing card exclusion patterns.
+ * Patterns are stored in chrome.storage.sync under 'cardExclusions'.
+ */
+function showCardExclusionsModal(panel) {
+  const MODAL_ID = 'tcgmizer-card-exclusion-modal';
+
+  // Don't open duplicate
+  if (panel.querySelector(`#${MODAL_ID}`)) return;
+
+  const modal = document.createElement('div');
+  modal.id = MODAL_ID;
+  modal.style.cssText = `
+    position: absolute; inset: 0; z-index: 10001;
+    background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;
+  `;
+
+  const dialog = document.createElement('div');
+  dialog.style.cssText = `
+    background: #fff; border-radius: 10px; padding: 20px; width: 320px; max-height: 80%;
+    overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3); font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  `;
+
+  dialog.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <strong style="font-size:14px;">Card Exclusions</strong>
+      <button class="tcgmizer-card-exclusion-close" style="background:none;border:none;font-size:18px;cursor:pointer;color:#666;">&times;</button>
+    </div>
+    <p style="font-size:12px;color:#666;margin:0 0 12px;">Cards whose name contains any of these strings will be excluded from alternate printing results.</p>
+    <div class="tcgmizer-card-exclusion-list" style="margin-bottom:12px;"></div>
+    <div style="display:flex;gap:6px;">
+      <input class="tcgmizer-card-exclusion-input" type="text" placeholder="e.g. (Showcase)"
+        style="flex:1;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;" />
+      <button class="tcgmizer-card-exclusion-add" style="padding:6px 12px;background:#2e9e5e;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;">Add</button>
+    </div>
+  `;
+
+  modal.appendChild(dialog);
+  panel.appendChild(modal);
+
+  const listDiv = dialog.querySelector('.tcgmizer-card-exclusion-list');
+  const input = dialog.querySelector('.tcgmizer-card-exclusion-input');
+  const addBtn = dialog.querySelector('.tcgmizer-card-exclusion-add');
+
+  let patterns = [];
+
+  function render() {
+    if (patterns.length === 0) {
+      listDiv.innerHTML = '<p style="font-size:12px;color:#999;margin:0;">No patterns defined.</p>';
+      return;
+    }
+    listDiv.innerHTML = patterns.map((p, i) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #eee;">
+        <span style="font-size:13px;">${escapeHtml(p)}</span>
+        <button data-idx="${i}" class="tcgmizer-card-exclusion-remove" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:16px;padding:0 4px;" title="Remove">&times;</button>
+      </div>
+    `).join('');
+
+    listDiv.querySelectorAll('.tcgmizer-card-exclusion-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        patterns.splice(parseInt(btn.dataset.idx, 10), 1);
+        save();
+        render();
+      });
+    });
+  }
+
+  function save() {
+    chrome.storage.sync.set({ cardExclusions: patterns });
+  }
+
+  function addPattern() {
+    const val = input.value.trim();
+    if (!val) return;
+    if (!patterns.some(p => p.toLowerCase() === val.toLowerCase())) {
+      patterns.push(val);
+      save();
+      render();
+    }
+    input.value = '';
+    input.focus();
+  }
+
+  addBtn.addEventListener('click', addPattern);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addPattern(); }
+  });
+
+  // Close modal
+  dialog.querySelector('.tcgmizer-card-exclusion-close').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+  // Load current patterns
+  chrome.storage.sync.get('cardExclusions', (data) => {
+    patterns = data.cardExclusions ?? [...DEFAULT_CARD_EXCLUSIONS];
+    render();
+  });
 }

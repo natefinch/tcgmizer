@@ -2,13 +2,6 @@
 
 A Chrome extension that optimizes your [TCGPlayer](https://www.tcgplayer.com) shopping cart to find the mathematically cheapest combination of sellers, including shipping costs.
 
-### Filter the way you like
-<img width="1203" height="828" alt="image" src="https://github.com/user-attachments/assets/e0b832ce-2ac3-45e0-a9a0-3c7f5d6b7c0f" />
-
-### Save money and time
-<img width="1180" height="887" alt="image" src="https://github.com/user-attachments/assets/ca67c014-27bc-4eaa-87dd-b2ed41de36e3" />
-
-
 ## The Problem
 
 When buying trading cards on TCGPlayer, each seller charges their own shipping fee. A cart with cards spread across many sellers can rack up significant shipping costs. Manually figuring out which sellers to buy from — balancing item prices, shipping fees, and free shipping thresholds — is tedious and nearly impossible to do optimally by hand.
@@ -35,7 +28,6 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
 - **Max vendors** — optionally cap the number of sellers to reduce the number of packages you receive.
 - **Minimize vendors mode** — solves at multiple vendor counts and shows you the price/convenience tradeoff so you can choose.
 - **Free shipping awareness** — knows each seller's free shipping threshold and factors it into the optimization. Sometimes spending slightly more at one seller triggers free shipping and saves money overall.
-- **Fast concurrent fetching** — fetches listings for multiple cards in parallel (5 at a time by default) and deduplicates requests for the same product, dramatically reducing wait times for large carts.
 - **Custom listing support** — handles seller-uploaded custom listings (the ones with their own photos) alongside standard listings.
 - **One-click apply** — replaces your cart with the optimized version. If any item is sold out, it automatically falls back to the next cheapest option.
 - **Runs entirely in your browser** — no external servers, no accounts, no data collection. Everything happens locally using TCGPlayer's own public APIs.

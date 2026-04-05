@@ -22,7 +22,8 @@ A detailed walkthrough of every component in the TCGmizer Chrome extension: arch
    - 4.10 [Popup](#410-popup)
    - 4.11 [Options Page (Settings)](#411-options-page-settings)
    - 4.12 [Seller Cache](#412-seller-cache)
-   - 4.13 [Offscreen Document (Legacy)](#413-offscreen-document-legacy)
+   - 4.13 [Printings Cache](#413-printings-cache)
+   - 4.14 [Offscreen Document (Legacy)](#414-offscreen-document-legacy)
 5. [End-to-End Data Flow](#end-to-end-data-flow)
 6. [Message Protocol](#message-protocol)
 7. [Caching Strategy](#caching-strategy)
@@ -82,7 +83,7 @@ TCGmizer is a Manifest V3 Chrome extension. It follows Chrome's standard extensi
 |---|---|
 | `activeTab` | Access the current tab when the user interacts with the popup |
 | `scripting` | Programmatically inject content scripts for SPA navigation |
-| `storage` | Persist vendor ban list via `chrome.storage.sync`; per-tab cache via `chrome.storage.session`; seller info cache via `chrome.storage.local` |
+| `storage` | Persist vendor ban list via `chrome.storage.sync`; per-tab cache via `chrome.storage.session`; seller info and printings caches via `chrome.storage.local` |
 
 ### Host Permissions
 
@@ -336,6 +337,8 @@ Returns `{ productId, productName, setName, marketPrice, productLineId, productL
 #### `searchAllCardPrintings(cardNames, seenProducts, options)`
 
 Concurrently searches for alternative printings of multiple cards using the same sliding-window concurrency as listing fetching.
+
+**Printings caching:** Before making API calls, prunes expired entries (older than 1 week) from the persistent printings cache (`chrome.storage.local`). Card names with valid cached results are served directly from the cache. Only uncached card names are searched via the TCGPlayer API. After fetching, newly retrieved results are stored in the cache with the current timestamp.
 
 **Product line filtering:** On the first pass, identifies which product lines (game systems) the cart items belong to. Alternative printings are only included if they share the same product line—preventing, for example, a Magic card named "Lightning Bolt" from matching a Pokémon card.
 
@@ -726,6 +729,7 @@ A minimal 280px-wide popup with two buttons and a status indicator.
    - Button is disabled
 4. "Settings" button opens the options page via `chrome.runtime.openOptionsPage()`.
 5. "Clear Seller Cache" button sends `MSG.CLEAR_SELLER_CACHE` to the service worker to wipe all cached seller shipping data. Provides visual feedback ("Clearing..." → "Cache Cleared!") and re-enables after 1.5 seconds.
+6. "Clear Printings Cache" button sends `MSG.CLEAR_PRINTINGS_CACHE` to the service worker to wipe all cached alternate printings data. Same visual feedback pattern as the seller cache button.
 
 ---
 
@@ -796,7 +800,57 @@ The service worker handles `MSG.CLEAR_SELLER_CACHE` messages (sent from the popu
 
 ---
 
-### 4.13 Offscreen Document (Legacy)
+### 4.13 Printings Cache
+
+**File:** `src/background/printings-cache.js`
+
+Manages persistent caching of alternate printings search results across browser sessions using `chrome.storage.local`. Since new card printings are released infrequently, the cache uses a 1-week TTL.
+
+#### Cache Entry Format
+
+Each entry is keyed by lowercased card name and stores:
+
+```json
+{
+  "printings": [
+    {
+      "productId": 230149,
+      "productName": "Snow-Covered Swamp",
+      "setName": "Kaldheim",
+      "marketPrice": 0.64,
+      "productLineId": 1,
+      "productLineName": "Magic: The Gathering"
+    }
+  ],
+  "timestamp": 1711200000000
+}
+```
+
+#### Exported Functions
+
+| Function | Purpose |
+|---|---|
+| `pruneExpiredEntries()` | Loads cache, removes entries older than 1 week, persists, returns the pruned cache |
+| `getCachedPrintings(cardNames, cache)` | Pure function — splits an array of card names into `{ cached: Map<name, printings[]>, uncachedNames: string[] }` using a pre-loaded cache object |
+| `cachePrintings(results)` | Merges new printings results (a `Map<name, printings[]>`) into the cache with the current timestamp |
+| `clearPrintingsCache()` | Removes the entire cache key from `chrome.storage.local` |
+
+#### Integration with Fetcher
+
+`searchAllCardPrintings()` in `fetcher.js` calls these functions in sequence:
+1. `pruneExpiredEntries()` — evict stale data
+2. `getCachedPrintings()` — identify which card names need fresh data
+3. Pre-populate `searchResults` with cached printings
+4. Run the sliding-window concurrent searcher only for uncached card names
+5. `cachePrintings()` — store newly fetched results
+
+#### Integration with Service Worker
+
+The service worker handles `MSG.CLEAR_PRINTINGS_CACHE` messages (sent from the popup's "Clear Printings Cache" button) by calling `clearPrintingsCache()`.
+
+---
+
+### 4.14 Offscreen Document (Legacy)
 
 **Files:** `src/offscreen/offscreen.html`, `src/offscreen/solver.js`
 
@@ -896,6 +950,7 @@ All inter-component communication uses `chrome.runtime.sendMessage()` (content �
 | Type | Payload | Purpose |
 |---|---|---|
 | `CLEAR_SELLER_CACHE` | — | Clear all cached seller shipping data |
+| `CLEAR_PRINTINGS_CACHE` | — | Clear all cached alternate printings data |
 
 ---
 
@@ -939,6 +994,28 @@ Seller shipping data (shipping cost, free-shipping thresholds) is cached persist
 4. **Store:** Newly fetched seller data (only sellers that responded — not ghost sellers) is written to the cache with the current timestamp.
 
 **Design rationale:** The shipping API is the second-slowest part of the fetch phase (after listing retrieval). For repeat optimizations — common when experimenting with filter settings or after adding/removing cart items — the vast majority of sellers will already be cached, reducing shipping API calls to near zero. The 6-hour TTL balances freshness against API call reduction.
+
+### Alternate Printings Cache (Cross-Session)
+
+Alternate printings search results (card name → list of product IDs across all sets) are cached persistently across browser sessions using `chrome.storage.local`. New printings are released infrequently, so a longer TTL is appropriate.
+
+| Property | Value |
+|---|---|
+| Storage | `chrome.storage.local` |
+| Key | `tcgmizer_printings_cache` |
+| Entry format | `{ printings: [{ productId, productName, setName, marketPrice, productLineId, productLineName }], timestamp }` |
+| Max age | 1 week (`CACHE_MAX_AGE_MS`) |
+| Eviction | Expired entries are pruned at the start of each printings search |
+| Manual clear | "Clear Printings Cache" button in the popup |
+
+**Lifecycle during an optimization run:**
+
+1. **Prune:** All entries older than 1 week are deleted from the cache.
+2. **Lookup:** Card names from the current optimization are checked against the cache. Cached card names have their printings arrays returned directly.
+3. **Fetch:** Only uncached card names are searched via the TCGPlayer product search API (`searchProductsByName`).
+4. **Store:** Newly fetched printings data is written to the cache with the current timestamp.
+
+**Design rationale:** The printings search involves one API call per unique card name and is the first slow step of the fetch phase. For repeat optimizations on the same cart, all card names will be cached, eliminating the printings search entirely. The 1-week TTL is appropriate because new set releases and reprints happen infrequently.
 
 ---
 
@@ -986,6 +1063,7 @@ Seller shipping data (shipping cost, free-shipping thresholds) is cached persist
 | **WASM stack** | Custom-built highs.wasm with 8MB stack (vs. 64KB in npm release) prevents stack overflow on large models |
 | **WASM resilience** | Automatic retry with reduced model size on WASM crash; HiGHS instance reset after abort |
 | **Seller cache** | Shipping info cached in `chrome.storage.local` with 6-hour TTL; repeat optimizations skip most shipping API calls |
+| **Printings cache** | Alternate printings cached in `chrome.storage.local` with 1-week TTL; repeat optimizations skip all printings search API calls |
 
 ---
 

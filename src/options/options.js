@@ -1,13 +1,19 @@
-// TCGmizer Options page — Vendor ban list management
+// TCGmizer Options page — Vendor ban list & card exclusion management
 
 const STORAGE_KEY = 'bannedSellers';
+const CARD_EXCLUSIONS_KEY = 'cardExclusions';
+const DEFAULT_CARD_EXCLUSIONS = ['(Display Commander)', '(Art Series)'];
 const SELLER_SEARCH_URL = 'https://mpapi.tcgplayer.com/v2/ShopBySeller/GetSellerSearchResults';
 
 let bannedSellers = []; // { sellerKey, sellerName, comment? }
+let cardExclusions = []; // string[]
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadBanList();
   renderBanList();
+
+  await loadCardExclusions();
+  renderCardExclusions();
 
   const searchInput = document.getElementById('seller-search');
   const searchBtn = document.getElementById('search-btn');
@@ -15,6 +21,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   searchBtn.addEventListener('click', () => doSearch());
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') doSearch();
+  });
+
+  const exclusionInput = document.getElementById('card-exclusion-input');
+  const exclusionAddBtn = document.getElementById('card-exclusion-add-btn');
+
+  exclusionAddBtn.addEventListener('click', () => addCardExclusion());
+  exclusionInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addCardExclusion();
   });
 });
 
@@ -186,6 +200,67 @@ function renderSearchResults(sellers) {
 
     resultsEl.appendChild(item);
   }
+}
+
+// --- Card Exclusions ---
+
+async function loadCardExclusions() {
+  const data = await chrome.storage.sync.get(CARD_EXCLUSIONS_KEY);
+  cardExclusions = data[CARD_EXCLUSIONS_KEY] ?? [...DEFAULT_CARD_EXCLUSIONS];
+}
+
+async function saveCardExclusions() {
+  await chrome.storage.sync.set({ [CARD_EXCLUSIONS_KEY]: cardExclusions });
+}
+
+function renderCardExclusions() {
+  const listEl = document.getElementById('card-exclusion-list');
+  const emptyEl = document.getElementById('card-exclusion-list-empty');
+  const countEl = document.getElementById('card-exclusion-count');
+
+  listEl.querySelectorAll('.card-exclusion-item').forEach(el => el.remove());
+
+  countEl.textContent = cardExclusions.length > 0 ? `(${cardExclusions.length})` : '';
+
+  if (cardExclusions.length === 0) {
+    emptyEl.style.display = '';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+
+  for (let i = 0; i < cardExclusions.length; i++) {
+    const pattern = cardExclusions[i];
+    const item = document.createElement('div');
+    item.className = 'card-exclusion-item';
+    item.innerHTML = `
+      <span class="ban-list-name">${escapeHtml(pattern)}</span>
+      <button class="options-btn options-btn-danger" data-idx="${i}">Remove</button>
+    `;
+    item.querySelector('button').addEventListener('click', () => removeCardExclusion(i));
+    listEl.appendChild(item);
+  }
+}
+
+async function removeCardExclusion(idx) {
+  cardExclusions.splice(idx, 1);
+  await saveCardExclusions();
+  renderCardExclusions();
+}
+
+async function addCardExclusion() {
+  const input = document.getElementById('card-exclusion-input');
+  const val = input.value.trim();
+  if (!val) return;
+  if (cardExclusions.some(p => p.toLowerCase() === val.toLowerCase())) {
+    input.value = '';
+    return;
+  }
+  cardExclusions.push(val);
+  await saveCardExclusions();
+  renderCardExclusions();
+  input.value = '';
+  input.focus();
 }
 
 function escapeHtml(str) {
