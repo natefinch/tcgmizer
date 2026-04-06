@@ -241,10 +241,10 @@ export function showConfig(options, onSolve) {
 
     <div class="tcgmizer-config-section tcgmizer-card-exclusion-section">
       <label class="tcgmizer-checkbox-label">
-        <input type="checkbox" class="tcgmizer-card-exclusions" checked /> Card Exclusions
+        <input type="checkbox" class="tcgmizer-card-exclusions" checked /> Version Exclusions
       </label>
       <a href="#" class="tcgmizer-manage-card-exclusions-link" style="font-size:12px;color:#2e9e5e;margin-left:4px;text-decoration:none;cursor:pointer;">Manage</a>
-      <span class="tcgmizer-config-hint">Excludes printings matching configured patterns (e.g. Display Commander). Takes effect on next optimize.</span>
+      <span class="tcgmizer-config-hint">Excludes printings matching configured patterns (e.g. Display Commander).</span>
     </div>
 
     <div class="tcgmizer-config-section">
@@ -892,10 +892,10 @@ function showCardExclusionsModal(panel) {
 
   dialog.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <strong style="font-size:14px;">Card Exclusions</strong>
+      <strong style="font-size:14px;">Version Exclusions</strong>
       <button class="tcgmizer-card-exclusion-close" style="background:none;border:none;font-size:18px;cursor:pointer;color:#666;">&times;</button>
     </div>
-    <p style="font-size:12px;color:#666;margin:0 0 12px;">Cards whose name contains any of these strings will be excluded from alternate printing results.</p>
+    <p style="font-size:12px;color:#666;margin:0 0 12px;">Card versions whose name contains any of these strings will be excluded from optimization.</p>
     <div class="tcgmizer-card-exclusion-list" style="margin-bottom:12px;"></div>
     <div style="display:flex;gap:6px;">
       <input class="tcgmizer-card-exclusion-input" type="text" placeholder="e.g. (Showcase)"
