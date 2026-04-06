@@ -1,4 +1,4 @@
-// Find Re.getProductListings and ListingSearchDefaultFilters definitions 
+// Find Re.getProductListings and ListingSearchDefaultFilters definitions
 // Also find the ProductCustomListing chunk for more API details
 
 async function main() {
@@ -12,11 +12,11 @@ async function main() {
   // Find the definition of Re (the API service object)
   // Look for where Re is defined/assigned
   console.log('=== Looking for Re definition / getProductListings function body ===');
-  
-  // The Re methods are: getLatestSales, getMoreSalesHistory, getProductLineFilters, 
+
+  // The Re methods are: getLatestSales, getMoreSalesHistory, getProductLineFilters,
   // getProductListings, getProductsBySkus, getProductDetails, getProductLegalitiesAndRulings
   // Let's find where getProductListings is defined as a method
-  
+
   // Search for the function that does the actual POST to search API
   const searchApiPostIdx = js.indexOf('getProductListings(');
   if (searchApiPostIdx >= 0) {
@@ -41,11 +41,8 @@ async function main() {
   // Find ListingSearchDefaultFilters definition
   console.log('\n\n=== ListingSearchDefaultFilters definition ===');
   // Search for where this function is defined
-  const patterns = [
-    'ListingSearchDefaultFilters',
-    'SearchDefaultFilters',
-  ];
-  
+  const patterns = ['ListingSearchDefaultFilters', 'SearchDefaultFilters'];
+
   for (const pat of patterns) {
     let si = 0;
     let c = 0;
@@ -70,7 +67,7 @@ async function main() {
   if (chunkRes.ok) {
     const chunkJs = await chunkRes.text();
     console.log(`Chunk size: ${(chunkJs.length / 1024).toFixed(0)}KB`);
-    
+
     // Search for API patterns in this chunk
     const apiPatterns = [
       /(?:post|get)\s*\([^)]*search[^)]*\)/gi,
@@ -79,7 +76,7 @@ async function main() {
       /mpapi|mpgateway/gi,
       /v1\/search|v2\/search/g,
     ];
-    
+
     for (const p of apiPatterns) {
       const matches = [...chunkJs.matchAll(p)];
       if (matches.length > 0) {

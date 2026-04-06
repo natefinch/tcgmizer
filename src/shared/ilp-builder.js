@@ -47,10 +47,10 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
       const topKListings = slotListings.slice(0, topK);
 
       // Check if any Direct listing made it into the top-K
-      const hasDirectInTopK = topKListings.some(l => l.directListing);
+      const hasDirectInTopK = topKListings.some((l) => l.directListing);
       if (!hasDirectInTopK) {
         // Find the cheapest Direct listing from the full list
-        const cheapestDirect = slotListings.find(l => l.directListing);
+        const cheapestDirect = slotListings.find((l) => l.directListing);
         if (cheapestDirect) {
           topKListings.push(cheapestDirect);
         }
@@ -148,7 +148,7 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
   const skipVars = []; // [varName]
   const cardNameToSkipVar = new Map(); // cardName → varName
   if (maxCuts > 0) {
-    const uniqueCardNames = [...new Set(cardSlots.map(s => s.cardName))];
+    const uniqueCardNames = [...new Set(cardSlots.map((s) => s.cardName))];
     for (let ci = 0; ci < uniqueCardNames.length; ci++) {
       const cardName = uniqueCardNames[ci];
       const varName = `skip_c${ci}`;
@@ -249,7 +249,12 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
     if (!sellerXVars) continue;
 
     const terms = sellerXVars.map(({ varName, price }) => `${formatCoeff(price)} ${varName}`).join(' + ');
-    pushExpressionLines(lines, `thresh_v${si}`, `${terms} - ${formatCoeff(seller.freeShippingThreshold)} ${zVar}`, '>= 0');
+    pushExpressionLines(
+      lines,
+      `thresh_v${si}`,
+      `${terms} - ${formatCoeff(seller.freeShippingThreshold)} ${zVar}`,
+      '>= 0',
+    );
   }
 
   // Constraint 4: z <= y (can't get free shipping if you don't use the seller)
@@ -290,12 +295,7 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
 
   lines.push('');
   lines.push('Binary');
-  const allBinaryVars = [
-    ...Object.keys(variableMap.x),
-    ...yVars,
-    ...zVars,
-    ...skipVars,
-  ];
+  const allBinaryVars = [...Object.keys(variableMap.x), ...yVars, ...zVars, ...skipVars];
   // Write binary variables in groups to avoid very long lines
   // (some LP readers have internal line-length limits)
   for (let i = 0; i < allBinaryVars.length; i += 10) {
@@ -307,7 +307,9 @@ export function buildLP({ cardSlots, sellers, listings, options = {} }) {
 
   const lpString = lines.join('\n');
 
-  console.log(`[TCGmizer ILP] Built LP: ${cardSlots.length} slots, ${activeSellers.size} sellers, ${Object.keys(variableMap.x).length} x-vars, ${yVars.length} y-vars, ${zVars.length} z-vars, ${objTerms.length} obj terms, ${lpString.length} chars`);
+  console.log(
+    `[TCGmizer ILP] Built LP: ${cardSlots.length} slots, ${activeSellers.size} sellers, ${Object.keys(variableMap.x).length} x-vars, ${yVars.length} y-vars, ${zVars.length} z-vars, ${objTerms.length} obj terms, ${lpString.length} chars`,
+  );
   console.log(`[TCGmizer ILP] LP preview (first 500 chars):\n${lpString.substring(0, 500)}`);
   console.log(`[TCGmizer ILP] LP tail (last 200 chars):\n${lpString.substring(lpString.length - 200)}`);
 
@@ -391,7 +393,7 @@ function formatCoeff(n) {
  */
 function pruneExpensiveListings(listingsBySlot) {
   const PRICE_MULTIPLIER = 2; // keep listings up to 2× median
-  const MIN_KEEP = 3;         // never prune below this many per slot
+  const MIN_KEEP = 3; // never prune below this many per slot
 
   let totalBefore = 0;
   let totalAfter = 0;
@@ -429,9 +431,9 @@ function pruneExpensiveListings(listingsBySlot) {
 
       // Preserve the cheapest Direct listing even if above the cutoff,
       // so the solver can use Direct for shipping consolidation.
-      const hasDirectInKept = pruned.some(l => l.directListing);
+      const hasDirectInKept = pruned.some((l) => l.directListing);
       if (!hasDirectInKept) {
-        const cheapestDirect = slotListings.find(l => l.directListing);
+        const cheapestDirect = slotListings.find((l) => l.directListing);
         if (cheapestDirect) {
           pruned.push(cheapestDirect);
         }
@@ -444,7 +446,9 @@ function pruneExpensiveListings(listingsBySlot) {
   }
 
   if (totalBefore > totalAfter) {
-    console.log(`[TCGmizer ILP] Price pruning: ${totalBefore} → ${totalAfter} listings (removed ${totalBefore - totalAfter} expensive outliers)`);
+    console.log(
+      `[TCGmizer ILP] Price pruning: ${totalBefore} → ${totalAfter} listings (removed ${totalBefore - totalAfter} expensive outliers)`,
+    );
   }
 }
 
@@ -474,7 +478,7 @@ function prefilterForMinVendors(listings, cardSlots, maxSellers) {
   // Use 3× maxSellers as the candidate pool, with floor of 30.
   const CANDIDATE_POOL = Math.max(30, maxSellers * 3);
 
-  const slotIds = new Set(cardSlots.map(s => s.slotId));
+  const slotIds = new Set(cardSlots.map((s) => s.slotId));
 
   // Step 1: Count slot coverage for each seller, considering only relevant slots
   const sellerSlots = new Map(); // sellerId → Set<slotId>
@@ -557,8 +561,10 @@ function prefilterForMinVendors(listings, cardSlots, maxSellers) {
   }
 
   // Step 5: Filter listings to only those from candidate sellers
-  const filtered = listings.filter(l => candidateSellers.has(l.sellerId));
+  const filtered = listings.filter((l) => candidateSellers.has(l.sellerId));
 
-  console.log(`[TCGmizer ILP] Min-vendors pre-filter: ${listings.length} → ${filtered.length} listings, ${candidateSellers.size} candidate sellers (from ${sellerSlots.size} total)`);
+  console.log(
+    `[TCGmizer ILP] Min-vendors pre-filter: ${listings.length} → ${filtered.length} listings, ${candidateSellers.size} candidate sellers (from ${sellerSlots.size} total)`,
+  );
   return filtered;
 }

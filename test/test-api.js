@@ -2,49 +2,49 @@
 const SEARCH_API_BASE = 'https://mp-search-api.tcgplayer.com/v1/search/request';
 
 const requestBody = {
-  algorithm: "revenue_exp_fields_experiment",
+  algorithm: 'revenue_exp_fields_experiment',
   from: 0,
   size: 3,
   filters: {
     term: {
-      productLineName: ["magic"],
-      productId: [656697]
+      productLineName: ['magic'],
+      productId: [656697],
     },
     range: {},
     exclude: {
-      channelExclusion: 0
-    }
+      channelExclusion: 0,
+    },
   },
   listingSearch: {
     filters: {
       term: {
-        sellerStatus: "Live",
-        channelExclusion: 0
+        sellerStatus: 'Live',
+        channelExclusion: 0,
       },
       range: {
-        quantity: { gte: 1 }
+        quantity: { gte: 1 },
       },
       exclude: {
         channelExclusion: 0,
-        listingType: ["Listing-Offer"]
-      }
+        listingType: ['Listing-Offer'],
+      },
     },
     context: {
-      cart: {}
-    }
+      cart: {},
+    },
   },
   context: {
     cart: {},
-    shippingCountry: "US"
+    shippingCountry: 'US',
   },
   settings: {
     useFuzzySearch: false,
-    didYouMean: {}
+    didYouMean: {},
   },
   sort: {
-    field: "price+shipping",
-    order: "asc"
-  }
+    field: 'price+shipping',
+    order: 'asc',
+  },
 };
 
 async function main() {
@@ -54,22 +54,22 @@ async function main() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
       body: JSON.stringify(requestBody),
     });
 
     console.log('Status:', response.status, response.statusText);
     console.log('Headers:', Object.fromEntries(response.headers.entries()));
-    
+
     const text = await response.text();
     console.log('Response length:', text.length);
-    
+
     try {
       const data = JSON.parse(text);
       console.log('\n=== RESPONSE STRUCTURE ===');
       console.log(JSON.stringify(data, null, 2).slice(0, 5000));
-      
+
       // Explore the structure
       if (data.results) {
         console.log('\n=== results array length:', data.results.length);

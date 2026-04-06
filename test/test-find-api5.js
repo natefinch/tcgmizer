@@ -11,14 +11,11 @@ async function main() {
   // Search for where Re is defined as an object with getProductListings
   // It might be: const Re = { getProductListings: function... }
   // Or: Re = { getProductListings(... }
-  
+
   // Find the pattern "getProductListings" followed by function-like syntax (definition, not call)
   console.log('=== Find getProductListings function definition ===');
-  const defPatterns = [
-    /getProductListings\s*[:(]\s*(?:function)?\s*\(/g,
-    /getProductListings\s*=\s*(?:function|\()/g,
-  ];
-  
+  const defPatterns = [/getProductListings\s*[:(]\s*(?:function)?\s*\(/g, /getProductListings\s*=\s*(?:function|\()/g];
+
   for (const p of defPatterns) {
     for (const m of js.matchAll(p)) {
       const ctx = js.slice(Math.max(0, m.index - 50), m.index + 600);
@@ -30,16 +27,16 @@ async function main() {
   // Search for "Re" or "Re=" where Re looks like a service object definition
   // Actually, let's find all methods of Re and search near them for the HTTP layer
   console.log('\n\n=== Search near Re methods for HTTP calls ===');
-  
+
   // The Re methods are listed. Let's find getProductDetails definition since it might be near getProductListings
   const methodDefs = [
     'getProductDetails',
     'getLatestSales',
-    'getProductListings', 
+    'getProductListings',
     'getProductsBySkus',
     'getProductPricePoints',
   ];
-  
+
   for (const method of methodDefs) {
     // Look for definition pattern: method(args){...} or method: function(args){...}
     const pat = new RegExp(`${method}\\s*[(:=]`, 'g');
@@ -47,7 +44,7 @@ async function main() {
       const prevChar = js[m.index - 1];
       // Skip call sites (preceded by .)
       if (prevChar === '.') continue;
-      
+
       const ctx = js.slice(Math.max(0, m.index - 30), m.index + 500);
       console.log(`\nDef of ${method} at ${m.index}:`);
       console.log(ctx.replace(/\n/g, ' ').slice(0, 600));
@@ -88,7 +85,7 @@ async function main() {
   if (chunk2Res.ok) {
     const chunk2 = await chunk2Res.text();
     console.log(`Chunk size: ${(chunk2.length / 1024).toFixed(0)}KB`);
-    
+
     // Check for API definitions
     for (const pat of ['getProductListings', 'search/request', 'SEARCH_API', 'searchApi']) {
       const i = chunk2.indexOf(pat);

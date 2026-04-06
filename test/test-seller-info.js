@@ -4,8 +4,8 @@ async function main() {
   const headers = {
     'Content-Type': 'application/json',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    'Origin': 'https://www.tcgplayer.com',
-    'Referer': 'https://www.tcgplayer.com/',
+    Origin: 'https://www.tcgplayer.com',
+    Referer: 'https://www.tcgplayer.com/',
   };
 
   // First: does the listing context reveal shipping thresholds?
@@ -27,7 +27,7 @@ async function main() {
   const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
   const json = await res.json();
   const listings = json.results[0].results;
-  
+
   // Check unique sellers and their shipping prices
   const sellers = new Map();
   for (const l of listings) {
@@ -41,17 +41,17 @@ async function main() {
       });
     }
   }
-  
+
   console.log(`Found ${sellers.size} unique sellers from ${listings.length} listings`);
 
   // Try getting seller info via mpapi
   const sellerKeys = [...sellers.keys()].slice(0, 3);
-  
+
   // Try mpapi seller endpoint
   for (const sk of sellerKeys) {
     const seller = sellers.get(sk);
     console.log(`\n=== Seller: ${seller.name} (${sk}) ===`);
-    
+
     // Try seller info endpoint
     const sellerUrl = `https://mpapi.tcgplayer.com/v2/seller/${sk}`;
     console.log(`GET ${sellerUrl}`);
@@ -92,8 +92,15 @@ async function main() {
   console.log('\n\n=== Search JS for shipping threshold patterns ===');
   const bundleRes = await fetch('https://www.tcgplayer.com/js/useWpnSellerBadge-BRX8o0io.js', { headers });
   const bundle = await bundleRes.text();
-  
-  const terms = ['freeShipping', 'shippingThreshold', 'freeShippingMinimum', 'FREE_SHIPPING', 'freeShipMin', 'shippingFree'];
+
+  const terms = [
+    'freeShipping',
+    'shippingThreshold',
+    'freeShippingMinimum',
+    'FREE_SHIPPING',
+    'freeShipMin',
+    'shippingFree',
+  ];
   for (const term of terms) {
     const idx = bundle.indexOf(term);
     if (idx >= 0) {

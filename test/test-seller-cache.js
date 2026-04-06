@@ -74,8 +74,8 @@ function assertEqual(actual, expected, msg) {
 console.log('Test 1: getCachedSellers splits keys into cached/uncached');
 {
   const cache = {
-    s1: { sellerName: 'Alpha', shippingCost: 1.00, timestamp: Date.now() },
-    s3: { sellerName: 'Gamma', shippingCost: 0.50, timestamp: Date.now() },
+    s1: { sellerName: 'Alpha', shippingCost: 1.0, timestamp: Date.now() },
+    s3: { sellerName: 'Gamma', shippingCost: 0.5, timestamp: Date.now() },
   };
 
   const result = getCachedSellers(['s1', 's2', 's3', 's4'], cache);
@@ -94,7 +94,7 @@ console.log('Test 1: getCachedSellers splits keys into cached/uncached');
 
   test('Cached entries contain original data', () => {
     assertEqual(result.cached.s1.sellerName, 'Alpha', 'Cached s1 name');
-    assertEqual(result.cached.s1.shippingCost, 1.00, 'Cached s1 shipping');
+    assertEqual(result.cached.s1.shippingCost, 1.0, 'Cached s1 shipping');
   });
 }
 
@@ -135,8 +135,8 @@ clearMockStore();
 
   await testAsync('Stores seller entries in chrome.storage.local', async () => {
     await cacheSellers({
-      s1: { sellerName: 'Alpha', sellerKey: 's1', sellerNumericId: 101, shippingCost: 1.00, freeShippingThreshold: 5.00 },
-      s2: { sellerName: 'Beta', sellerKey: 's2', sellerNumericId: 102, shippingCost: 2.00, freeShippingThreshold: null },
+      s1: { sellerName: 'Alpha', sellerKey: 's1', sellerNumericId: 101, shippingCost: 1.0, freeShippingThreshold: 5.0 },
+      s2: { sellerName: 'Beta', sellerKey: 's2', sellerNumericId: 102, shippingCost: 2.0, freeShippingThreshold: null },
     });
 
     const stored = mockStore['tcgmizer_seller_cache'];
@@ -150,18 +150,19 @@ clearMockStore();
     assertEqual(stored.s1.sellerName, 'Alpha', 's1 name');
     assertEqual(stored.s1.sellerKey, 's1', 's1 key');
     assertEqual(stored.s1.sellerNumericId, 101, 's1 numeric id');
-    assertEqual(stored.s1.shippingCost, 1.00, 's1 shipping cost');
-    assertEqual(stored.s1.freeShippingThreshold, 5.00, 's1 free shipping threshold');
+    assertEqual(stored.s1.shippingCost, 1.0, 's1 shipping cost');
+    assertEqual(stored.s1.freeShippingThreshold, 5.0, 's1 free shipping threshold');
     assertEqual(stored.s2.freeShippingThreshold, null, 's2 free shipping threshold should be null');
   });
 
   await testAsync('Stored entries have valid timestamps', async () => {
     const stored = mockStore['tcgmizer_seller_cache'];
     const after = Date.now();
-    assert(stored.s1.timestamp >= before && stored.s1.timestamp <= after,
-      `s1 timestamp ${stored.s1.timestamp} should be between ${before} and ${after}`);
-    assert(stored.s2.timestamp >= before && stored.s2.timestamp <= after,
-      `s2 timestamp should be current`);
+    assert(
+      stored.s1.timestamp >= before && stored.s1.timestamp <= after,
+      `s1 timestamp ${stored.s1.timestamp} should be between ${before} and ${after}`,
+    );
+    assert(stored.s2.timestamp >= before && stored.s2.timestamp <= after, `s2 timestamp should be current`);
   });
 }
 
@@ -174,12 +175,12 @@ clearMockStore();
   await testAsync('New entries are added alongside existing ones', async () => {
     // Store initial entry
     await cacheSellers({
-      s1: { sellerName: 'Alpha', sellerKey: 's1', sellerNumericId: 101, shippingCost: 1.00, freeShippingThreshold: 5.00 },
+      s1: { sellerName: 'Alpha', sellerKey: 's1', sellerNumericId: 101, shippingCost: 1.0, freeShippingThreshold: 5.0 },
     });
 
     // Store second entry
     await cacheSellers({
-      s2: { sellerName: 'Beta', sellerKey: 's2', sellerNumericId: 102, shippingCost: 2.00, freeShippingThreshold: null },
+      s2: { sellerName: 'Beta', sellerKey: 's2', sellerNumericId: 102, shippingCost: 2.0, freeShippingThreshold: null },
     });
 
     const stored = mockStore['tcgmizer_seller_cache'];
@@ -191,13 +192,19 @@ clearMockStore();
 
   await testAsync('Updating existing entry overwrites it', async () => {
     await cacheSellers({
-      s1: { sellerName: 'Alpha Updated', sellerKey: 's1', sellerNumericId: 101, shippingCost: 0.50, freeShippingThreshold: 10.00 },
+      s1: {
+        sellerName: 'Alpha Updated',
+        sellerKey: 's1',
+        sellerNumericId: 101,
+        shippingCost: 0.5,
+        freeShippingThreshold: 10.0,
+      },
     });
 
     const stored = mockStore['tcgmizer_seller_cache'];
     assertEqual(stored.s1.sellerName, 'Alpha Updated', 's1 name updated');
-    assertEqual(stored.s1.shippingCost, 0.50, 's1 shipping cost updated');
-    assertEqual(stored.s1.freeShippingThreshold, 10.00, 's1 threshold updated');
+    assertEqual(stored.s1.shippingCost, 0.5, 's1 shipping cost updated');
+    assertEqual(stored.s1.freeShippingThreshold, 10.0, 's1 threshold updated');
     assert(stored.s2 !== undefined, 's2 should still be present');
   });
 }
@@ -213,11 +220,11 @@ clearMockStore();
 
   // Directly seed the mock store with entries at different ages
   mockStore['tcgmizer_seller_cache'] = {
-    fresh: { sellerName: 'Fresh', shippingCost: 1.00, timestamp: now - 1000 },                // 1 second ago
-    borderline: { sellerName: 'Borderline', shippingCost: 1.50, timestamp: now - SIX_HOURS + 60000 }, // just under 6h
-    expired: { sellerName: 'Expired', shippingCost: 2.00, timestamp: now - SIX_HOURS - 1 },   // just over 6h
-    veryOld: { sellerName: 'Very Old', shippingCost: 3.00, timestamp: now - SIX_HOURS * 3 },  // 18h ago
-    noTimestamp: { sellerName: 'No Timestamp', shippingCost: 0.50 },                            // no timestamp at all
+    fresh: { sellerName: 'Fresh', shippingCost: 1.0, timestamp: now - 1000 }, // 1 second ago
+    borderline: { sellerName: 'Borderline', shippingCost: 1.5, timestamp: now - SIX_HOURS + 60000 }, // just under 6h
+    expired: { sellerName: 'Expired', shippingCost: 2.0, timestamp: now - SIX_HOURS - 1 }, // just over 6h
+    veryOld: { sellerName: 'Very Old', shippingCost: 3.0, timestamp: now - SIX_HOURS * 3 }, // 18h ago
+    noTimestamp: { sellerName: 'No Timestamp', shippingCost: 0.5 }, // no timestamp at all
   };
 
   await testAsync('Prune returns only fresh entries', async () => {
@@ -248,8 +255,8 @@ clearMockStore();
 {
   const now = Date.now();
   mockStore['tcgmizer_seller_cache'] = {
-    s1: { sellerName: 'A', shippingCost: 1.00, timestamp: now },
-    s2: { sellerName: 'B', shippingCost: 2.00, timestamp: now - 1000 },
+    s1: { sellerName: 'A', shippingCost: 1.0, timestamp: now },
+    s2: { sellerName: 'B', shippingCost: 2.0, timestamp: now - 1000 },
   };
 
   await testAsync('All entries survive when none are expired', async () => {
@@ -281,8 +288,8 @@ clearMockStore();
   await testAsync('Clears the seller cache from storage', async () => {
     // Seed some data
     await cacheSellers({
-      s1: { sellerName: 'A', sellerKey: 's1', sellerNumericId: 1, shippingCost: 1.00, freeShippingThreshold: null },
-      s2: { sellerName: 'B', sellerKey: 's2', sellerNumericId: 2, shippingCost: 2.00, freeShippingThreshold: 5.00 },
+      s1: { sellerName: 'A', sellerKey: 's1', sellerNumericId: 1, shippingCost: 1.0, freeShippingThreshold: null },
+      s2: { sellerName: 'B', sellerKey: 's2', sellerNumericId: 2, shippingCost: 2.0, freeShippingThreshold: 5.0 },
     });
     assert(mockStore['tcgmizer_seller_cache'] !== undefined, 'Cache should exist before clear');
 
@@ -307,9 +314,9 @@ clearMockStore();
   await testAsync('Cache sellers, age some, prune, then lookup', async () => {
     // 1. Cache three sellers
     await cacheSellers({
-      s1: { sellerName: 'Alpha', sellerKey: 's1', sellerNumericId: 101, shippingCost: 1.00, freeShippingThreshold: 5.00 },
-      s2: { sellerName: 'Beta', sellerKey: 's2', sellerNumericId: 102, shippingCost: 2.00, freeShippingThreshold: null },
-      s3: { sellerName: 'Gamma', sellerKey: 's3', sellerNumericId: 103, shippingCost: 0.50, freeShippingThreshold: 3.00 },
+      s1: { sellerName: 'Alpha', sellerKey: 's1', sellerNumericId: 101, shippingCost: 1.0, freeShippingThreshold: 5.0 },
+      s2: { sellerName: 'Beta', sellerKey: 's2', sellerNumericId: 102, shippingCost: 2.0, freeShippingThreshold: null },
+      s3: { sellerName: 'Gamma', sellerKey: 's3', sellerNumericId: 103, shippingCost: 0.5, freeShippingThreshold: 3.0 },
     });
 
     // 2. Manually age s2 to make it expired
@@ -332,10 +339,10 @@ clearMockStore();
     assert(uncachedKeys.includes('s4'), 's4 needs fetching (never cached)');
 
     // 5. Verify cached data has correct shipping info
-    assertEqual(cached.s1.shippingCost, 1.00, 's1 shipping cost from cache');
-    assertEqual(cached.s1.freeShippingThreshold, 5.00, 's1 threshold from cache');
-    assertEqual(cached.s3.shippingCost, 0.50, 's3 shipping cost from cache');
-    assertEqual(cached.s3.freeShippingThreshold, 3.00, 's3 threshold from cache');
+    assertEqual(cached.s1.shippingCost, 1.0, 's1 shipping cost from cache');
+    assertEqual(cached.s1.freeShippingThreshold, 5.0, 's1 threshold from cache');
+    assertEqual(cached.s3.shippingCost, 0.5, 's3 shipping cost from cache');
+    assertEqual(cached.s3.freeShippingThreshold, 3.0, 's3 threshold from cache');
   });
 }
 

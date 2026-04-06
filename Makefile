@@ -1,4 +1,4 @@
-.PHONY: help deps build watch test clean rebuild-wasm
+.PHONY: help deps build watch test clean rebuild-wasm format
 
 # Default target: show help
 help: ## Show this help message
@@ -49,6 +49,11 @@ test: node_modules build ## Run all unit tests
 
 watch: node_modules ## Rebuild on file changes (dev mode)
 	node build.js --watch
+
+# ── Format ────────────────────────────────────────────────────
+
+format: node_modules ## Format all source and test files with Prettier
+	npx prettier --write 'src/**/*.{js,css,html}' 'test/**/*.js'
 
 # ── WASM Solver ───────────────────────────────────────────────
 

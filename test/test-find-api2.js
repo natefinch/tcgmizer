@@ -27,10 +27,10 @@ async function main() {
     const matches = [...js.matchAll(pat)];
     if (matches.length > 0) {
       console.log(`\nPattern: ${pat.source} (${matches.length} matches)`);
-      const unique = [...new Set(matches.map(m => m[0]))];
+      const unique = [...new Set(matches.map((m) => m[0]))];
       for (const m of unique.slice(0, 20)) {
         console.log(`  ${m.slice(0, 200)}`);
-        
+
         // Show context
         const idx = js.indexOf(m);
         if (idx >= 0) {
@@ -55,7 +55,7 @@ async function main() {
     }
     searchFrom = idx + 1;
   }
-  
+
   console.log(`Found ${listingRefs.length} API-related "listings" contexts:`);
   for (const ctx of listingRefs) {
     console.log(`  ...${ctx.slice(0, 350)}...`);

@@ -33,12 +33,10 @@ export async function applyOptimizedCart(result) {
         }
         // For Direct items, use the original seller info preserved during ILP remapping
         const isDirectItem = seller.isDirect || item.directListing;
-        const itemSellerKey = isDirectItem && item.originalSellerKey
-          ? item.originalSellerKey
-          : (seller.sellerKey || seller.sellerId);
-        const itemSellerNumericId = isDirectItem && item.originalSellerNumericId != null
-          ? item.originalSellerNumericId
-          : seller.sellerNumericId;
+        const itemSellerKey =
+          isDirectItem && item.originalSellerKey ? item.originalSellerKey : seller.sellerKey || seller.sellerId;
+        const itemSellerNumericId =
+          isDirectItem && item.originalSellerNumericId != null ? item.originalSellerNumericId : seller.sellerNumericId;
 
         rawItems.push({
           sku: item.productConditionId,
@@ -76,7 +74,9 @@ export async function applyOptimizedCart(result) {
     }
     const itemsToAdd = [...aggregated.values()];
 
-    console.log(`[TCGmizer] Applying cart: clearing then adding ${rawItems.length} items (${itemsToAdd.length} unique sku+seller combos) via ${GATEWAY_API}`);
+    console.log(
+      `[TCGmizer] Applying cart: clearing then adding ${rawItems.length} items (${itemsToAdd.length} unique sku+seller combos) via ${GATEWAY_API}`,
+    );
 
     // Step 1: Clear current cart
     const clearResult = await clearCart(cartKey);
@@ -85,7 +85,7 @@ export async function applyOptimizedCart(result) {
     }
 
     // Build a set of already-used sku+seller combos so fallback doesn't retry them
-    const usedSkuSeller = new Set(itemsToAdd.map(it => `${it.sku}:${it.sellerKey}`));
+    const usedSkuSeller = new Set(itemsToAdd.map((it) => `${it.sku}:${it.sellerKey}`));
 
     // Get fallback listings from the result (built by service worker)
     const fallbackListings = result.fallbackListings || {};
@@ -106,7 +106,9 @@ export async function applyOptimizedCart(result) {
       }
 
       console.warn(`[TCGmizer] Failed to add item ${i + 1}/${itemsToAdd.length}: ${addResult.error}`);
-      console.warn(`[TCGmizer]   Item details: card="${item.cardName}", set="${item.setName}", sku=${item.sku}, sellerKey=${item.sellerKey}, sellerId=${item.sellerId}, price=${item.price}, qty=${item.quantity}, isDirect=${item.isDirect}`);
+      console.warn(
+        `[TCGmizer]   Item details: card="${item.cardName}", set="${item.setName}", sku=${item.sku}, sellerKey=${item.sellerKey}, sellerId=${item.sellerId}, price=${item.price}, qty=${item.quantity}, isDirect=${item.isDirect}`,
+      );
       console.warn(`[TCGmizer]   Error code: ${addResult.errorCode || 'none'}`);
 
       // CAPI-4: item sold out — try fallback listings for this card
@@ -114,14 +116,18 @@ export async function applyOptimizedCart(result) {
         // Extract the first cardName (before any aggregation commas)
         const primaryCardName = item.cardName.split(', ')[0];
         const fallbacks = fallbackListings[primaryCardName] || [];
-        console.log(`[TCGmizer]   Attempting CAPI-4 fallback for "${primaryCardName}" — ${fallbacks.length} alternatives available`);
+        console.log(
+          `[TCGmizer]   Attempting CAPI-4 fallback for "${primaryCardName}" — ${fallbacks.length} alternatives available`,
+        );
 
         let fallbackSucceeded = false;
         for (const fb of fallbacks) {
           const fbKey = `${fb.sku}:${fb.sellerKey}`;
           if (usedSkuSeller.has(fbKey)) continue; // skip already-used or already-tried
 
-          console.log(`[TCGmizer]   Trying fallback: sku=${fb.sku}, seller=${fb.sellerKey} (${fb.sellerName}), price=$${fb.price}, set="${fb.setName}"`);
+          console.log(
+            `[TCGmizer]   Trying fallback: sku=${fb.sku}, seller=${fb.sellerKey} (${fb.sellerName}), price=$${fb.price}, set="${fb.setName}"`,
+          );
 
           const fbItem = {
             sku: fb.sku,
@@ -149,14 +155,18 @@ export async function applyOptimizedCart(result) {
               fallbackSetName: fb.setName,
               fallbackSellerName: fb.sellerName,
             });
-            console.log(`[TCGmizer]   ✓ Fallback succeeded for "${primaryCardName}" — new price: $${fb.price} from ${fb.sellerName}`);
+            console.log(
+              `[TCGmizer]   ✓ Fallback succeeded for "${primaryCardName}" — new price: $${fb.price} from ${fb.sellerName}`,
+            );
             fallbackSucceeded = true;
             break;
           }
 
           // Mark this as tried so we don't retry
           usedSkuSeller.add(fbKey);
-          console.warn(`[TCGmizer]   Fallback also failed (${fbResult.errorCode || 'unknown'}): sku=${fb.sku}, seller=${fb.sellerKey}`);
+          console.warn(
+            `[TCGmizer]   Fallback also failed (${fbResult.errorCode || 'unknown'}): sku=${fb.sku}, seller=${fb.sellerKey}`,
+          );
           await sleep(50);
         }
 
@@ -190,7 +200,9 @@ export async function applyOptimizedCart(result) {
     if (fallbackCount > 0) {
       console.log(`[TCGmizer] ${fallbackCount} item(s) were replaced with fallback listings:`);
       for (const fb of fallbackItems) {
-        console.log(`[TCGmizer]   - ${fb.cardName}: $${fb.originalPrice} → $${fb.fallbackPrice} (${fb.fallbackSellerName}, ${fb.fallbackSetName})`);
+        console.log(
+          `[TCGmizer]   - ${fb.cardName}: $${fb.originalPrice} → $${fb.fallbackPrice} (${fb.fallbackSellerName}, ${fb.fallbackSetName})`,
+        );
       }
     }
 
@@ -199,14 +211,38 @@ export async function applyOptimizedCart(result) {
       for (const fi of failedItems) {
         console.warn(`[TCGmizer]   - ${fi.cardName} (${fi.setName}): ${fi.errorCode || 'unknown'} — ${fi.reason}`);
       }
-      return { success: true, partial: true, failCount, totalCount: itemsToAdd.length, failedItems, fallbackCount, fallbackItems };
+      return {
+        success: true,
+        partial: true,
+        failCount,
+        totalCount: itemsToAdd.length,
+        failedItems,
+        fallbackCount,
+        fallbackItems,
+      };
     }
 
     if (fallbackCount > 0) {
-      return { success: true, partial: true, failCount: 0, totalCount: itemsToAdd.length, failedItems: [], fallbackCount, fallbackItems };
+      return {
+        success: true,
+        partial: true,
+        failCount: 0,
+        totalCount: itemsToAdd.length,
+        failedItems: [],
+        fallbackCount,
+        fallbackItems,
+      };
     }
 
-    return { success: true, partial: false, failCount: 0, totalCount: itemsToAdd.length, failedItems: [], fallbackCount: 0, fallbackItems: [] };
+    return {
+      success: true,
+      partial: false,
+      failCount: 0,
+      totalCount: itemsToAdd.length,
+      failedItems: [],
+      fallbackCount: 0,
+      fallbackItems: [],
+    };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -217,10 +253,13 @@ export async function applyOptimizedCart(result) {
  */
 export function saveCartState(cartItems) {
   try {
-    sessionStorage.setItem('tcgmizer_undo_cart', JSON.stringify({
-      timestamp: Date.now(),
-      items: cartItems,
-    }));
+    sessionStorage.setItem(
+      'tcgmizer_undo_cart',
+      JSON.stringify({
+        timestamp: Date.now(),
+        items: cartItems,
+      }),
+    );
   } catch (e) {
     console.warn('[TCGmizer] Failed to save cart state for undo:', e);
   }
@@ -272,7 +311,7 @@ async function clearCart(cartKey) {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
       credentials: 'include',
     });
@@ -323,7 +362,9 @@ async function addItemToCart(cartKey, item) {
     };
   }
 
-  console.log(`[TCGmizer] Adding to cart: "${item.cardName}" (${item.setName || 'no set'}) — sku=${item.sku}, seller=${item.sellerKey}, price=$${item.price}, qty=${item.quantity || 1}, isDirect=${item.isDirect || false}${isCustom ? ', customListingKey=' + item.customListingKey : ''}`);
+  console.log(
+    `[TCGmizer] Adding to cart: "${item.cardName}" (${item.setName || 'no set'}) — sku=${item.sku}, seller=${item.sellerKey}, price=$${item.price}, qty=${item.quantity || 1}, isDirect=${item.isDirect || false}${isCustom ? ', customListingKey=' + item.customListingKey : ''}`,
+  );
   console.log(`[TCGmizer]   ${isCustom ? 'Custom listing' : 'Standard'} → ${url.split('/').slice(-2).join('/')}`);
   console.log(`[TCGmizer]   Request body:`, JSON.stringify(body));
 
@@ -332,7 +373,7 @@ async function addItemToCart(cartKey, item) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
       credentials: 'include',
       body: JSON.stringify(body),
@@ -374,13 +415,17 @@ async function addItemToCart(cartKey, item) {
  */
 function friendlyError(code) {
   switch (code) {
-    case 'CAPI-4':  return 'Sold out (no longer available from this seller)';
-    case 'CAPI-17': return 'Product not found (may have been delisted)';
-    case 'CAPI-35': return 'Product not available for purchase';
-    default:        return `Error: ${code}`;
+    case 'CAPI-4':
+      return 'Sold out (no longer available from this seller)';
+    case 'CAPI-17':
+      return 'Product not found (may have been delisted)';
+    case 'CAPI-35':
+      return 'Product not available for purchase';
+    default:
+      return `Error: ${code}`;
   }
 }
 
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -47,7 +47,7 @@ export async function pruneExpiredEntries() {
   let pruned = 0;
 
   for (const key of Object.keys(cache)) {
-    if (!cache[key].timestamp || (now - cache[key].timestamp) > CACHE_MAX_AGE_MS) {
+    if (!cache[key].timestamp || now - cache[key].timestamp > CACHE_MAX_AGE_MS) {
       delete cache[key];
       pruned++;
     }

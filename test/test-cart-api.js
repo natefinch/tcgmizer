@@ -39,7 +39,7 @@ async function main() {
       indices.push(idx);
       idx = js.indexOf(term, idx + 1);
     }
-    
+
     if (indices.length > 0) {
       console.log(`\n=== "${term}" — ${indices.length}+ occurrences ===`);
       for (const i of indices) {

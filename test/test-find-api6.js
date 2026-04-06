@@ -17,7 +17,7 @@ async function main() {
     console.log(`\nAt ${m.index}: ${ctx.replace(/\n/g, ' ').slice(0, 600)}`);
   }
 
-  // Also try a broader search: just "Re={" 
+  // Also try a broader search: just "Re={"
   console.log('\n\n=== Search "Re={" pattern ===');
   let idx = 0;
   let count = 0;
@@ -27,7 +27,13 @@ async function main() {
     if (i === -1) break;
     // Check that this is actually the Re service (check for method names nearby)
     const ctx = js.slice(i, i + 600);
-    if (ctx.includes('getProduct') || ctx.includes('getSales') || ctx.includes('getLatest') || ctx.includes('post') || ctx.includes('.get(')) {
+    if (
+      ctx.includes('getProduct') ||
+      ctx.includes('getSales') ||
+      ctx.includes('getLatest') ||
+      ctx.includes('post') ||
+      ctx.includes('.get(')
+    ) {
       console.log(`\nAt ${i}: ${ctx.replace(/\n/g, ' ').slice(0, 600)}`);
     }
     idx = i + 1;
@@ -40,9 +46,17 @@ async function main() {
   if (psRes.ok) {
     const psJs = await psRes.text();
     console.log(`Size: ${(psJs.length / 1024).toFixed(0)}KB`);
-    
+
     // Check for API patterns
-    for (const term of ['getProductListings', 'search/request', 'post(', 'SEARCH_API', 'searchApi', 'mpapi', 'v1/search']) {
+    for (const term of [
+      'getProductListings',
+      'search/request',
+      'post(',
+      'SEARCH_API',
+      'searchApi',
+      'mpapi',
+      'v1/search',
+    ]) {
       const i = psJs.indexOf(term);
       if (i >= 0) {
         const ctx = psJs.slice(Math.max(0, i - 150), i + 400);
@@ -53,12 +67,9 @@ async function main() {
 
   // Search for "search/request" URL pattern in POST call - it might be in a separate utility
   console.log('\n\n=== Look for search request POST URL construction ===');
-  // The URL pattern likely includes "v1/search/request" 
-  const urlPatterns = [
-    /["'`][^"'`]*search\/request[^"'`]*["'`]/g,
-    /v1\/search/g,
-  ];
-  
+  // The URL pattern likely includes "v1/search/request"
+  const urlPatterns = [/["'`][^"'`]*search\/request[^"'`]*["'`]/g, /v1\/search/g];
+
   for (const p of urlPatterns) {
     for (const m of js.matchAll(p)) {
       const ctx = js.slice(Math.max(0, m.index - 200), m.index + 200);

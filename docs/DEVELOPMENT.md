@@ -266,6 +266,43 @@ The solver's limits are most stressed with large carts (50–100+ items). To tes
 
 ---
 
+## Coding Policy
+
+### Testing
+
+All new functionality **must** have tests. Add tests to the appropriate file in `test/` or create a new test file following the existing patterns (see [Testing](#testing) above for the test runner conventions).
+
+- Test pure logic thoroughly (ILP building, solution parsing, filtering, remapping)
+- Mock external dependencies (fetch, chrome APIs) — see `test-alt-printings-unit.js` for examples
+- Run `make test` to verify all tests pass before finishing
+
+### Documentation
+
+Always update documentation when adding or changing behavior:
+
+| What changed | Update |
+|---|---|
+| User-visible features | `README.md` |
+| Architecture or implementation | `docs/technical-design.md` |
+| Build system, commands, or contributor workflow | `docs/DEVELOPMENT.md` |
+| TCGPlayer API endpoints | `docs/tcgplayer-api-reference.md` |
+
+### Formatting
+
+All source and test files are formatted with [Prettier](https://prettier.io/) (config in `.prettierrc`).
+
+```bash
+make format              # Format all files
+```
+
+Run `make format` after making changes. The standard verification sequence before finishing is:
+
+```bash
+make format && make build && make test
+```
+
+---
+
 ## Making Changes
 
 ### Adding a new filter option

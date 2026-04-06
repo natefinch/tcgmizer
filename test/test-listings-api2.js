@@ -4,8 +4,8 @@ async function main() {
   const headers = {
     'Content-Type': 'application/json',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    'Origin': 'https://www.tcgplayer.com',
-    'Referer': 'https://www.tcgplayer.com/',
+    Origin: 'https://www.tcgplayer.com',
+    Referer: 'https://www.tcgplayer.com/',
   };
 
   // Try a popular MTG card product ID
@@ -57,7 +57,7 @@ async function main() {
       console.log('Keys:', Object.keys(listing));
       console.log(JSON.stringify(listing, null, 2).slice(0, 2000));
     }
-    
+
     if (r0.results?.length > 1) {
       console.log('\n=== Second listing ===');
       console.log(JSON.stringify(r0.results[1], null, 2).slice(0, 1000));

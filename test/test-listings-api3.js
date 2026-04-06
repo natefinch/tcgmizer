@@ -4,8 +4,8 @@ async function main() {
   const headers = {
     'Content-Type': 'application/json',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    'Origin': 'https://www.tcgplayer.com',
-    'Referer': 'https://www.tcgplayer.com/',
+    Origin: 'https://www.tcgplayer.com',
+    Referer: 'https://www.tcgplayer.com/',
   };
 
   const productId = 534753;

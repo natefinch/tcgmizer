@@ -11,7 +11,7 @@ async function main() {
   // Find all references to "sellerShippingInfo"
   const matches = [...js.matchAll(/sellerShippingInfo/g)];
   console.log(`Found ${matches.length} occurrences of "sellerShippingInfo"`);
-  
+
   for (const m of matches) {
     const ctx = js.slice(Math.max(0, m.index - 300), m.index + 500);
     console.log(`\n=== At offset ${m.index} ===`);
@@ -27,7 +27,7 @@ async function main() {
     }
   }
 
-  // Look for "sellerKey" near "shipping" 
+  // Look for "sellerKey" near "shipping"
   const re = /sellerKey[^}]{0,200}shipping/gi;
   const results = [...js.matchAll(re)];
   console.log(`\n\n=== sellerKey near shipping: ${results.length} matches ===`);

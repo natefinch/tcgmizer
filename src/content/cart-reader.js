@@ -193,11 +193,18 @@ function parseSellerFromArticle(article) {
  */
 function isCondition(text) {
   const conditionTerms = [
-    'near mint', 'lightly played', 'moderately played', 'heavily played',
-    'damaged', 'nm', 'lp', 'mp', 'hp',
+    'near mint',
+    'lightly played',
+    'moderately played',
+    'heavily played',
+    'damaged',
+    'nm',
+    'lp',
+    'mp',
+    'hp',
   ];
   const lower = text.toLowerCase();
-  return conditionTerms.some(term => lower.startsWith(term));
+  return conditionTerms.some((term) => lower.startsWith(term));
 }
 
 /**

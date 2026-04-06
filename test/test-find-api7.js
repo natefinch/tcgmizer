@@ -57,7 +57,7 @@ async function main() {
   if (utilRes.ok) {
     const utilJs = await utilRes.text();
     console.log(`Size: ${(utilJs.length / 1024).toFixed(0)}KB`);
-    
+
     for (const term of ['getProductListings', 'search/request', 'SEARCH_API', 'post(', 'mpapi', 'mp-search-api']) {
       const i = utilJs.indexOf(term);
       if (i >= 0) {
@@ -69,11 +69,13 @@ async function main() {
 
   // Try marketplace__ chunk
   console.log('\n\n=== Check marketplace chunk ===');
-  const mkRes = await fetch('https://www.tcgplayer.com/js/marketplace__loadShare__vue__loadShare__-DN7alQEX.js', { headers });
+  const mkRes = await fetch('https://www.tcgplayer.com/js/marketplace__loadShare__vue__loadShare__-DN7alQEX.js', {
+    headers,
+  });
   if (mkRes.ok) {
     const mkJs = await mkRes.text();
     console.log(`Size: ${(mkJs.length / 1024).toFixed(0)}KB`);
-    
+
     for (const term of ['getProductListings', 'search/request', 'SEARCH_API', 'mpapi', 'mp-search-api', 'post(']) {
       const i = mkJs.indexOf(term);
       if (i >= 0) {

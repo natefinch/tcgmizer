@@ -6,8 +6,9 @@ async function main() {
 
   // Try fetching with browser-like headers
   const headers = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'User-Agent':
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
   };
 
@@ -15,7 +16,7 @@ async function main() {
   console.log('=== Fetching product page HTML ===');
   const pageRes = await fetch(`https://www.tcgplayer.com/product/${productId}?Language=English`, { headers });
   const html = await pageRes.text();
-  
+
   // Look for __NEXT_DATA__
   const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
   if (nextDataMatch) {
@@ -53,28 +54,28 @@ async function main() {
   console.log('\n=== Try mp-search-api with string productId ===');
   const res2 = await fetch('https://mp-search-api.tcgplayer.com/v1/search/request?q=&isList=false', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...headers },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
     body: JSON.stringify({
-      algorithm: "sales_synonym_v2",
+      algorithm: 'sales_synonym_v2',
       from: 0,
       size: 3,
       filters: {
-        term: { productLineName: ["magic"], productId: [String(productId)] },
+        term: { productLineName: ['magic'], productId: [String(productId)] },
         range: {},
-        exclude: { channelExclusion: 0 }
+        exclude: { channelExclusion: 0 },
       },
       listingSearch: {
         filters: {
-          term: { sellerStatus: "Live", channelExclusion: 0 },
+          term: { sellerStatus: 'Live', channelExclusion: 0 },
           range: { quantity: { gte: 1 } },
-          exclude: { channelExclusion: 0 }
+          exclude: { channelExclusion: 0 },
         },
-        context: { cart: {} }
+        context: { cart: {} },
       },
-      context: { cart: {}, shippingCountry: "US" },
+      context: { cart: {}, shippingCountry: 'US' },
       settings: { useFuzzySearch: false, didYouMean: {} },
-      sort: { field: "price+shipping", order: "asc" }
-    })
+      sort: { field: 'price+shipping', order: 'asc' },
+    }),
   });
   console.log(`Status: ${res2.status}`);
   const text2 = await res2.text();
@@ -85,34 +86,34 @@ async function main() {
   console.log('\n=== Try mp-search-api with different Accept ===');
   const res3 = await fetch('https://mp-search-api.tcgplayer.com/v1/search/request?q=&isList=false', {
     method: 'POST',
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
-      'Accept': '*/*',
-      'Origin': 'https://www.tcgplayer.com',
-      'Referer': 'https://www.tcgplayer.com/',
-      ...headers 
+      Accept: '*/*',
+      Origin: 'https://www.tcgplayer.com',
+      Referer: 'https://www.tcgplayer.com/',
+      ...headers,
     },
     body: JSON.stringify({
-      algorithm: "sales_synonym_v2",
+      algorithm: 'sales_synonym_v2',
       from: 0,
       size: 3,
       filters: {
-        term: { productLineName: ["magic"], productId: [productId] },
+        term: { productLineName: ['magic'], productId: [productId] },
         range: {},
-        exclude: { channelExclusion: 0 }
+        exclude: { channelExclusion: 0 },
       },
       listingSearch: {
         filters: {
-          term: { sellerStatus: "Live", channelExclusion: 0 },
+          term: { sellerStatus: 'Live', channelExclusion: 0 },
           range: { quantity: { gte: 1 } },
-          exclude: { channelExclusion: 0 }
+          exclude: { channelExclusion: 0 },
         },
-        context: { cart: {} }
+        context: { cart: {} },
       },
-      context: { cart: {}, shippingCountry: "US" },
+      context: { cart: {}, shippingCountry: 'US' },
       settings: { useFuzzySearch: false, didYouMean: {} },
-      sort: { field: "price+shipping", order: "asc" }
-    })
+      sort: { field: 'price+shipping', order: 'asc' },
+    }),
   });
   console.log(`Status: ${res3.status}`);
   const text3 = await res3.text();
@@ -122,7 +123,7 @@ async function main() {
   // 4. Try just fetching listings page as JSON via content negotiation
   console.log('\n=== Try product listings page with JSON accept ===');
   const res4 = await fetch(`https://www.tcgplayer.com/product/${productId}?Language=English`, {
-    headers: { ...headers, 'Accept': 'application/json' }
+    headers: { ...headers, Accept: 'application/json' },
   });
   console.log(`Status: ${res4.status}, Content-Type: ${res4.headers.get('content-type')}`);
   const text4 = await res4.text();
@@ -140,7 +141,9 @@ async function main() {
     `/api/marketplace/product/${productId}/listings`,
     `/api/catalog/product/${productId}`,
   ]) {
-    const res = await fetch(`https://www.tcgplayer.com${path}`, { headers: { ...headers, Accept: 'application/json' } });
+    const res = await fetch(`https://www.tcgplayer.com${path}`, {
+      headers: { ...headers, Accept: 'application/json' },
+    });
     console.log(`\nGET ${path} → ${res.status} (${res.headers.get('content-type')})`);
     if (res.ok && res.headers.get('content-type')?.includes('json')) {
       const t = await res.text();

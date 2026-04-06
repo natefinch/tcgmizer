@@ -47,7 +47,7 @@ function renderBanList() {
   const countEl = document.getElementById('ban-count');
 
   // Clear existing items (but keep the empty message element)
-  listEl.querySelectorAll('.ban-list-item').forEach(el => el.remove());
+  listEl.querySelectorAll('.ban-list-item').forEach((el) => el.remove());
 
   countEl.textContent = bannedSellers.length > 0 ? `(${bannedSellers.length})` : '';
 
@@ -80,20 +80,20 @@ function renderBanList() {
 }
 
 async function removeSeller(sellerKey) {
-  bannedSellers = bannedSellers.filter(s => s.sellerKey !== sellerKey);
+  bannedSellers = bannedSellers.filter((s) => s.sellerKey !== sellerKey);
   await saveBanList();
   renderBanList();
 }
 
 async function updateComment(sellerKey, comment) {
-  const seller = bannedSellers.find(s => s.sellerKey === sellerKey);
+  const seller = bannedSellers.find((s) => s.sellerKey === sellerKey);
   if (!seller) return;
   seller.comment = comment;
   await saveBanList();
 }
 
 async function addSeller(sellerKey, sellerName) {
-  if (bannedSellers.some(s => s.sellerKey === sellerKey)) return;
+  if (bannedSellers.some((s) => s.sellerKey === sellerKey)) return;
   bannedSellers.push({ sellerKey, sellerName, comment: '' });
   await saveBanList();
   renderBanList();
@@ -150,7 +150,6 @@ async function doSearch() {
 
     lastSearchResults = sellers;
     renderSearchResults(sellers);
-
   } catch (err) {
     loadingEl.style.display = 'none';
     errorEl.textContent = `Search failed: ${err.message}`;
@@ -176,7 +175,7 @@ function renderSearchResults(sellers) {
     // Normalize seller key — the API may return sellerKey, sellerName, or other fields
     const sellerKey = seller.sellerKey || String(seller.sellerId || '');
     const sellerName = seller.displayName || seller.sellerName || 'Unknown';
-    const isBanned = bannedSellers.some(s => s.sellerKey === sellerKey);
+    const isBanned = bannedSellers.some((s) => s.sellerKey === sellerKey);
 
     const item = document.createElement('div');
     item.className = 'search-result-item';
@@ -218,7 +217,7 @@ function renderCardExclusions() {
   const emptyEl = document.getElementById('card-exclusion-list-empty');
   const countEl = document.getElementById('card-exclusion-count');
 
-  listEl.querySelectorAll('.card-exclusion-item').forEach(el => el.remove());
+  listEl.querySelectorAll('.card-exclusion-item').forEach((el) => el.remove());
 
   countEl.textContent = cardExclusions.length > 0 ? `(${cardExclusions.length})` : '';
 
@@ -252,7 +251,7 @@ async function addCardExclusion() {
   const input = document.getElementById('card-exclusion-input');
   const val = input.value.trim();
   if (!val) return;
-  if (cardExclusions.some(p => p.toLowerCase() === val.toLowerCase())) {
+  if (cardExclusions.some((p) => p.toLowerCase() === val.toLowerCase())) {
     input.value = '';
     return;
   }

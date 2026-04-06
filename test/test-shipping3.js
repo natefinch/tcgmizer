@@ -4,8 +4,8 @@ async function main() {
   const headers = {
     'Content-Type': 'application/json',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    'Origin': 'https://www.tcgplayer.com',
-    'Referer': 'https://www.tcgplayer.com/',
+    Origin: 'https://www.tcgplayer.com',
+    Referer: 'https://www.tcgplayer.com/',
   };
 
   const sellerId = 214769; // Chadderbox Hobby
@@ -18,11 +18,11 @@ async function main() {
       headers,
       body: JSON.stringify(body),
     });
-    
+
     const json = await res.json();
     const seller = json.results?.[0]?.[0] || json.results?.[0];
     const optCount = seller?.sellerShippingOptions?.length || 0;
-    
+
     if (optCount > 0) {
       console.log(`\ncatId=${catId}: ${optCount} shipping options!`);
       console.log(JSON.stringify(seller.sellerShippingOptions, null, 2));

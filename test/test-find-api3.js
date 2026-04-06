@@ -71,8 +71,8 @@ async function main() {
     console.log(ctx.replace(/\n/g, ' '));
     si = i + 1;
   }
-  
-  // Look for ListingSearchDefaultFilters 
+
+  // Look for ListingSearchDefaultFilters
   console.log('\n\n=== ListingSearchDefaultFilters ===');
   const lsIdx = js.indexOf('ListingSearchDefaultFilters');
   if (lsIdx >= 0) {
@@ -80,7 +80,7 @@ async function main() {
     console.log(ctx.replace(/\n/g, ' '));
   }
 
-  // Look for SearchDefaultFilters 
+  // Look for SearchDefaultFilters
   console.log('\n\n=== SearchDefaultFilters ===');
   const sdIdx = js.indexOf('SearchDefaultFilters');
   if (sdIdx >= 0) {

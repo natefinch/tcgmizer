@@ -41,7 +41,7 @@ export function parseSolution(solution, variableMap, cardSlots, sellers, current
   const sellerMap = new Map(); // sellerId → { items, subtotal }
   for (const assignment of assignments) {
     const { listing } = assignment;
-    const slot = cardSlots.find(s => s.slotId === assignment.slotId);
+    const slot = cardSlots.find((s) => s.slotId === assignment.slotId);
 
     if (!sellerMap.has(listing.sellerId)) {
       sellerMap.set(listing.sellerId, {

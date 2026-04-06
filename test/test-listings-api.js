@@ -8,9 +8,10 @@ async function main() {
 
   const headers = {
     'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-    'Origin': 'https://www.tcgplayer.com',
-    'Referer': 'https://www.tcgplayer.com/',
+    'User-Agent':
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+    Origin: 'https://www.tcgplayer.com',
+    Referer: 'https://www.tcgplayer.com/',
   };
 
   // Minimal listing search body
@@ -48,17 +49,17 @@ async function main() {
       const url = `https://mp-search-api.tcgplayer.com/v1/product/${productId}/listings`;
       console.log(`\n=== Product ${productId}, body variant ${bi} ===`);
       console.log(`URL: ${url}`);
-      
+
       try {
         const res = await fetch(url, {
           method: 'POST',
           headers,
           body: JSON.stringify(bodies[bi]),
         });
-        
+
         console.log(`Status: ${res.status}`);
         const text = await res.text();
-        
+
         if (res.ok) {
           try {
             const json = JSON.parse(text);

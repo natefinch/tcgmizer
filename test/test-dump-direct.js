@@ -43,8 +43,8 @@ const { cardSlots, allListings, sellers, currentCartTotal } = dump;
 console.log('Test 1: Direct remapping captures all Direct listings');
 {
   const remapped = remapDirectListings(allListings, sellers);
-  const directCount = allListings.filter(l => l.directListing).length;
-  const remappedCount = remapped.listings.filter(l => l.sellerId === '__tcgplayer_direct__').length;
+  const directCount = allListings.filter((l) => l.directListing).length;
+  const remappedCount = remapped.listings.filter((l) => l.sellerId === '__tcgplayer_direct__').length;
 
   test('All Direct listings are remapped', () => {
     assert(remappedCount === directCount, `Expected ${directCount} remapped, got ${remappedCount}`);
@@ -54,12 +54,12 @@ console.log('Test 1: Direct remapping captures all Direct listings');
     const direct = remapped.sellers['__tcgplayer_direct__'];
     assert(direct, 'Synthetic Direct seller missing');
     assert(direct.shippingCost === 3.99, `Expected $3.99 shipping, got ${direct.shippingCost}`);
-    assert(direct.freeShippingThreshold === 50.00, `Expected $50 threshold, got ${direct.freeShippingThreshold}`);
+    assert(direct.freeShippingThreshold === 50.0, `Expected $50 threshold, got ${direct.freeShippingThreshold}`);
   });
 
   test('Non-Direct listings unchanged', () => {
-    const nonDirectBefore = allListings.filter(l => !l.directListing).length;
-    const nonDirectAfter = remapped.listings.filter(l => l.sellerId !== '__tcgplayer_direct__').length;
+    const nonDirectBefore = allListings.filter((l) => !l.directListing).length;
+    const nonDirectAfter = remapped.listings.filter((l) => l.sellerId !== '__tcgplayer_direct__').length;
     assert(nonDirectAfter === nonDirectBefore, `Non-direct count changed: ${nonDirectBefore} → ${nonDirectAfter}`);
   });
 }
@@ -122,7 +122,9 @@ console.log('\nTest 3: Baseline solve (no maxSellers)');
 
   test('Total cost is less than current cart', () => {
     assert(result.totalCost < currentCartTotal, `$${result.totalCost} >= $${currentCartTotal}`);
-    console.log(`    Baseline: $${result.totalCost} (${result.sellerCount} sellers), savings: $${result.savings.toFixed(2)}`);
+    console.log(
+      `    Baseline: $${result.totalCost} (${result.sellerCount} sellers), savings: $${result.savings.toFixed(2)}`,
+    );
   });
 }
 
@@ -144,11 +146,11 @@ console.log('\nTest 4: Pre-filter enables min-vendors solutions with Direct');
         options: { topK, maxSellers: 20 },
       });
 
-      const highs2 = await (require('highs'))();
+      const highs2 = await require('highs')();
       const solution = highs2.solve(lp);
       if (solution.Status === 'Optimal') {
         const result = parseSolution(solution, variableMap, cardSlots, remapped.sellers, currentCartTotal);
-        const directSeller = result.sellers.find(s => s.isDirect);
+        const directSeller = result.sellers.find((s) => s.isDirect);
 
         test(`Solution found at topK=${topK} with ≤20 vendors`, () => {
           assert(result.sellerCount <= 20, `Expected ≤20, got ${result.sellerCount}`);

@@ -46,7 +46,9 @@ export function injectUI() {
 
   // --- Drag to move ---
   const header = panel.querySelector('.tcgmizer-header');
-  let dragging = false, dragX = 0, dragY = 0;
+  let dragging = false,
+    dragX = 0,
+    dragY = 0;
 
   header.addEventListener('mousedown', (e) => {
     // Don't drag if clicking the close button
@@ -60,8 +62,8 @@ export function injectUI() {
 
   document.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    panel.style.left = (e.clientX - dragX) + 'px';
-    panel.style.top = (e.clientY - dragY) + 'px';
+    panel.style.left = e.clientX - dragX + 'px';
+    panel.style.top = e.clientY - dragY + 'px';
     panel.style.right = 'auto';
   });
 
@@ -103,7 +105,6 @@ export function injectUI() {
       panel._onStart();
     }
   });
-
 }
 
 /**
@@ -196,20 +197,24 @@ export function showConfig(options, onSolve) {
   const configDiv = panel.querySelector('.tcgmizer-config');
 
   // Build language checkboxes
-  const langCheckboxes = options.languages.map(lang => {
-    const checked = lang === 'English' ? 'checked' : '';
-    return `<label class="tcgmizer-checkbox-label">
+  const langCheckboxes = options.languages
+    .map((lang) => {
+      const checked = lang === 'English' ? 'checked' : '';
+      return `<label class="tcgmizer-checkbox-label">
       <input type="checkbox" value="${escapeHtml(lang)}" ${checked} /> ${escapeHtml(lang)}
     </label>`;
-  }).join('');
+    })
+    .join('');
 
   // Build condition checkboxes (all checked by default, except Damaged)
-  const condCheckboxes = options.conditions.map(cond => {
-    const checked = cond === 'Damaged' ? '' : 'checked';
-    return `<label class="tcgmizer-checkbox-label">
+  const condCheckboxes = options.conditions
+    .map((cond) => {
+      const checked = cond === 'Damaged' ? '' : 'checked';
+      return `<label class="tcgmizer-checkbox-label">
       <input type="checkbox" value="${escapeHtml(cond)}" ${checked} /> ${escapeHtml(cond)}
     </label>`;
-  }).join('');
+    })
+    .join('');
 
   configDiv.innerHTML = `
     <div class="tcgmizer-config-summary">
@@ -239,7 +244,7 @@ export function showConfig(options, onSolve) {
         <input type="checkbox" class="tcgmizer-card-exclusions" checked /> Card Exclusions
       </label>
       <a href="#" class="tcgmizer-manage-card-exclusions-link" style="font-size:12px;color:#2e9e5e;margin-left:4px;text-decoration:none;cursor:pointer;">Manage</a>
-      <span class="tcgmizer-config-hint">Excludes printings matching configured patterns (e.g. Display Commander). Takes effect on next fetch.</span>
+      <span class="tcgmizer-config-hint">Excludes printings matching configured patterns (e.g. Display Commander). Takes effect on next optimize.</span>
     </div>
 
     <div class="tcgmizer-config-section">
@@ -292,14 +297,14 @@ export function showConfig(options, onSolve) {
 
     // Restore language checkboxes
     if (saved.languages && saved.languages.length > 0) {
-      configDiv.querySelectorAll('.tcgmizer-lang-options input[type="checkbox"]').forEach(cb => {
+      configDiv.querySelectorAll('.tcgmizer-lang-options input[type="checkbox"]').forEach((cb) => {
         cb.checked = saved.languages.includes(cb.value);
       });
     }
 
     // Restore condition checkboxes
     if (saved.conditions && saved.conditions.length > 0) {
-      configDiv.querySelectorAll('.tcgmizer-cond-options input[type="checkbox"]').forEach(cb => {
+      configDiv.querySelectorAll('.tcgmizer-cond-options input[type="checkbox"]').forEach((cb) => {
         cb.checked = saved.conditions.includes(cb.value);
       });
     }
@@ -320,7 +325,7 @@ export function showConfig(options, onSolve) {
     }
   });
 
-  // Save cardExclusionsEnabled immediately on change so it's available at fetch time
+  // Save cardExclusionsEnabled immediately on change so it persists across sessions
   configDiv.querySelector('.tcgmizer-card-exclusions').addEventListener('change', (e) => {
     chrome.storage.local.get('optimizerSettings', (data) => {
       const settings = data.optimizerSettings || {};
@@ -343,7 +348,7 @@ export function showConfig(options, onSolve) {
       checkbox.checked = true;
       label.textContent = `(${banned.length} banned)`;
     }
-    checkbox._bannedKeys = banned.map(s => s.sellerKey);
+    checkbox._bannedKeys = banned.map((s) => s.sellerKey);
   }
 
   chrome.storage.sync.get('bannedSellers', (data) => {
@@ -370,18 +375,22 @@ export function showConfig(options, onSolve) {
   });
 
   // Select all / none links
-  configDiv.querySelectorAll('.tcgmizer-select-all').forEach(a => {
+  configDiv.querySelectorAll('.tcgmizer-select-all').forEach((a) => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
       const target = a.dataset.target;
-      configDiv.querySelectorAll(`.tcgmizer-${target}-options input[type="checkbox"]`).forEach(cb => cb.checked = true);
+      configDiv
+        .querySelectorAll(`.tcgmizer-${target}-options input[type="checkbox"]`)
+        .forEach((cb) => (cb.checked = true));
     });
   });
-  configDiv.querySelectorAll('.tcgmizer-select-none').forEach(a => {
+  configDiv.querySelectorAll('.tcgmizer-select-none').forEach((a) => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
       const target = a.dataset.target;
-      configDiv.querySelectorAll(`.tcgmizer-${target}-options input[type="checkbox"]`).forEach(cb => cb.checked = false);
+      configDiv
+        .querySelectorAll(`.tcgmizer-${target}-options input[type="checkbox"]`)
+        .forEach((cb) => (cb.checked = false));
     });
   });
 
@@ -392,15 +401,16 @@ export function showConfig(options, onSolve) {
 
   // Run Optimizer button
   configDiv.querySelector('.tcgmizer-run-solver').addEventListener('click', () => {
-    const selectedLangs = [...configDiv.querySelectorAll('.tcgmizer-lang-options input:checked')].map(cb => cb.value);
-    const selectedConds = [...configDiv.querySelectorAll('.tcgmizer-cond-options input:checked')].map(cb => cb.value);
+    const selectedLangs = [...configDiv.querySelectorAll('.tcgmizer-lang-options input:checked')].map((cb) => cb.value);
+    const selectedConds = [...configDiv.querySelectorAll('.tcgmizer-cond-options input:checked')].map((cb) => cb.value);
     const minimizeVendors = configDiv.querySelector('.tcgmizer-minimize-vendors').checked;
     const maxCuts = parseInt(configDiv.querySelector('.tcgmizer-max-cuts').value, 10) || 0;
     const exactPrintings = configDiv.querySelector('.tcgmizer-exact-printings').checked;
     const cardExclusionsEnabled = configDiv.querySelector('.tcgmizer-card-exclusions').checked;
 
     const excludeBannedCheckbox = configDiv.querySelector('.tcgmizer-exclude-banned');
-    const bannedSellerKeys = (excludeBannedCheckbox.checked && excludeBannedCheckbox._bannedKeys) ? excludeBannedCheckbox._bannedKeys : [];
+    const bannedSellerKeys =
+      excludeBannedCheckbox.checked && excludeBannedCheckbox._bannedKeys ? excludeBannedCheckbox._bannedKeys : [];
 
     if (selectedLangs.length === 0) {
       alert('Please select at least one language.');
@@ -429,6 +439,7 @@ export function showConfig(options, onSolve) {
       minimizeVendors,
       maxCuts: minimizeVendors ? maxCuts : 0,
       exactPrintings,
+      cardExclusionsEnabled,
       bannedSellerKeys,
     };
 
@@ -497,11 +508,12 @@ export function showResults(result, onApply) {
   }
 
   const savingsClass = result.savings > 0 ? 'tcgmizer-savings-positive' : 'tcgmizer-savings-neutral';
-  const savingsText = result.savings > 0
-    ? `Save $${result.savings.toFixed(2)}!`
-    : result.savings === 0
-      ? 'Same price (but possibly fewer packages)'
-      : `$${Math.abs(result.savings).toFixed(2)} more (current cart is already optimal)`;
+  const savingsText =
+    result.savings > 0
+      ? `Save $${result.savings.toFixed(2)}!`
+      : result.savings === 0
+        ? 'Same price (but possibly fewer packages)'
+        : `$${Math.abs(result.savings).toFixed(2)} more (current cart is already optimal)`;
 
   let sellersHtml = '';
   for (const seller of result.sellers) {
@@ -537,7 +549,11 @@ export function showResults(result, onApply) {
 
   // Apply button
   resultsDiv.querySelector('.tcgmizer-apply').addEventListener('click', () => {
-    if (confirm('This will replace your current TCGPlayer cart with the optimized selections. This cannot be undone! Continue?')) {
+    if (
+      confirm(
+        'This will replace your current TCGPlayer cart with the optimized selections. This cannot be undone! Continue?',
+      )
+    ) {
       if (typeof onApply === 'function') onApply(result);
     }
   });
@@ -583,9 +599,10 @@ export function showMultiResults(results, onApply) {
     const extraClass = extraCost > 0.005 ? '' : 'tcgmizer-cheapest-tag';
 
     // Show cut cards indicator if any
-    const cutInfo = r.cutCards && r.cutCards.length > 0
-      ? `<div class="tcgmizer-cut-info" title="${escapeHtml(r.cutCards.join(' · '))}">✂️ Cut ${r.cutCards.length} card${r.cutCards.length !== 1 ? 's' : ''}: ${escapeHtml(r.cutCards.join(' · '))}</div>`
-      : '';
+    const cutInfo =
+      r.cutCards && r.cutCards.length > 0
+        ? `<div class="tcgmizer-cut-info" title="${escapeHtml(r.cutCards.join(' · '))}">✂️ Cut ${r.cutCards.length} card${r.cutCards.length !== 1 ? 's' : ''}: ${escapeHtml(r.cutCards.join(' · '))}</div>`
+        : '';
 
     // Build the expandable detail (seller breakdown)
     let detailHtml = '';
@@ -615,9 +632,8 @@ export function showMultiResults(results, onApply) {
 
   const currentTotal = results[0].currentCartTotal;
   const bestSavings = currentTotal - cheapest.totalCost;
-  const savingsText = bestSavings > 0
-    ? `Best savings: $${bestSavings.toFixed(2)}`
-    : 'Current cart is already near optimal';
+  const savingsText =
+    bestSavings > 0 ? `Best savings: $${bestSavings.toFixed(2)}` : 'Current cart is already near optimal';
 
   resultsDiv.innerHTML = `
     <div class="tcgmizer-summary">
@@ -639,7 +655,7 @@ export function showMultiResults(results, onApply) {
   `;
 
   // Toggle expand/collapse on row click
-  resultsDiv.querySelectorAll('.tcgmizer-compare-row').forEach(row => {
+  resultsDiv.querySelectorAll('.tcgmizer-compare-row').forEach((row) => {
     const summary = row.querySelector('.tcgmizer-compare-row-summary');
     const detail = row.querySelector('.tcgmizer-compare-detail');
     const toggle = row.querySelector('.tcgmizer-compare-toggle');
@@ -656,11 +672,15 @@ export function showMultiResults(results, onApply) {
   });
 
   // Apply buttons
-  resultsDiv.querySelectorAll('.tcgmizer-compare-apply').forEach(btn => {
+  resultsDiv.querySelectorAll('.tcgmizer-compare-apply').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const idx = parseInt(e.target.closest('.tcgmizer-compare-row').dataset.index, 10);
       const result = results[idx];
-      if (confirm(`Apply cart with ${result.sellerCount} vendor${result.sellerCount !== 1 ? 's' : ''} ($${result.totalCost.toFixed(2)})? This will replace your current TCGPlayer cart. This cannot be undone!`)) {
+      if (
+        confirm(
+          `Apply cart with ${result.sellerCount} vendor${result.sellerCount !== 1 ? 's' : ''} ($${result.totalCost.toFixed(2)})? This will replace your current TCGPlayer cart. This cannot be undone!`,
+        )
+      ) {
         if (typeof onApply === 'function') onApply(result);
       }
     });
@@ -712,8 +732,8 @@ const CONDITION_ABBREVS = {
   'Lightly Played': 'LP',
   'Moderately Played': 'MP',
   'Heavily Played': 'HP',
-  'Damaged': 'DMG',
-  'Mint': 'M',
+  Damaged: 'DMG',
+  Mint: 'M',
   'Near Mint Foil': 'NM-F',
   'Lightly Played Foil': 'LP-F',
   'Moderately Played Foil': 'MP-F',
@@ -788,15 +808,19 @@ function groupItems(items) {
  * @param {boolean} showChanged - whether to show the printing-changed indicator
  */
 function renderGroupedItems(groups, showChanged) {
-  return groups.map(({ item, qty }) => {
-    const changed = showChanged && item.printingChanged
-      ? ` <span class="tcgmizer-changed" title="Different printing (originally ${escapeHtml(cleanSetName(item.originalSetName) || 'unknown set')})">🔀</span>`
-      : '';
-    const qtyBadge = qty > 1 ? `<span class="tcgmizer-item-qty">${qty}×</span> ` : '';
-    const details = [abbreviateCondition(item.condition), cleanSetName(item.setName), item.language].filter(Boolean).join(' · ');
-    const imgUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${item.productId}_200w.jpg`;
-    const priceText = qty > 1 ? `$${item.price.toFixed(2)} ea` : `$${item.price.toFixed(2)}`;
-    return `
+  return groups
+    .map(({ item, qty }) => {
+      const changed =
+        showChanged && item.printingChanged
+          ? ` <span class="tcgmizer-changed" title="Different printing (originally ${escapeHtml(cleanSetName(item.originalSetName) || 'unknown set')})">🔀</span>`
+          : '';
+      const qtyBadge = qty > 1 ? `<span class="tcgmizer-item-qty">${qty}×</span> ` : '';
+      const details = [abbreviateCondition(item.condition), cleanSetName(item.setName), item.language]
+        .filter(Boolean)
+        .join(' · ');
+      const imgUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${item.productId}_200w.jpg`;
+      const priceText = qty > 1 ? `$${item.price.toFixed(2)} ea` : `$${item.price.toFixed(2)}`;
+      return `
       <div class="tcgmizer-item">
         <img class="tcgmizer-item-img" src="${imgUrl}" alt="${escapeHtml(item.cardName)}" loading="lazy" />
         <div class="tcgmizer-item-info">
@@ -806,19 +830,35 @@ function renderGroupedItems(groups, showChanged) {
         <span class="tcgmizer-item-price">${priceText}</span>
       </div>
     `;
-  }).join('');
+    })
+    .join('');
 }
 
 function cleanSetName(setName) {
   if (!setName) return '';
   // Cart-reader set strings look like "SetName, Game Name, Rarity, CollectorNum"
   // API set strings are usually just the set name already
-  const parts = setName.split(',').map(s => s.trim());
+  const parts = setName.split(',').map((s) => s.trim());
   if (parts.length <= 1) return setName;
   // Filter out known game names and short rarity/number tokens
-  const dominated = ['Magic: The Gathering', 'Pokemon', 'Yu-Gi-Oh', 'Yu-Gi-Oh!', 'Flesh and Blood', 'Lorcana', 'One Piece Card Game', 'Dragon Ball Super Card Game', 'Digimon Card Game', 'MetaZoo', 'Final Fantasy', 'Cardfight!! Vanguard', 'Weiss Schwarz', 'Star Wars: Unlimited'];
-  const domSet = new Set(dominated.map(d => d.toLowerCase()));
-  const filtered = parts.filter(p => {
+  const dominated = [
+    'Magic: The Gathering',
+    'Pokemon',
+    'Yu-Gi-Oh',
+    'Yu-Gi-Oh!',
+    'Flesh and Blood',
+    'Lorcana',
+    'One Piece Card Game',
+    'Dragon Ball Super Card Game',
+    'Digimon Card Game',
+    'MetaZoo',
+    'Final Fantasy',
+    'Cardfight!! Vanguard',
+    'Weiss Schwarz',
+    'Star Wars: Unlimited',
+  ];
+  const domSet = new Set(dominated.map((d) => d.toLowerCase()));
+  const filtered = parts.filter((p) => {
     if (domSet.has(p.toLowerCase())) return false;
     // Drop pure rarity codes (single letters) and collector numbers
     if (/^[A-Z]$/.test(p) || /^\d+$/.test(p)) return false;
@@ -878,14 +918,18 @@ function showCardExclusionsModal(panel) {
       listDiv.innerHTML = '<p style="font-size:12px;color:#999;margin:0;">No patterns defined.</p>';
       return;
     }
-    listDiv.innerHTML = patterns.map((p, i) => `
+    listDiv.innerHTML = patterns
+      .map(
+        (p, i) => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #eee;">
         <span style="font-size:13px;">${escapeHtml(p)}</span>
         <button data-idx="${i}" class="tcgmizer-card-exclusion-remove" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:16px;padding:0 4px;" title="Remove">&times;</button>
       </div>
-    `).join('');
+    `,
+      )
+      .join('');
 
-    listDiv.querySelectorAll('.tcgmizer-card-exclusion-remove').forEach(btn => {
+    listDiv.querySelectorAll('.tcgmizer-card-exclusion-remove').forEach((btn) => {
       btn.addEventListener('click', () => {
         patterns.splice(parseInt(btn.dataset.idx, 10), 1);
         save();
@@ -901,7 +945,7 @@ function showCardExclusionsModal(panel) {
   function addPattern() {
     const val = input.value.trim();
     if (!val) return;
-    if (!patterns.some(p => p.toLowerCase() === val.toLowerCase())) {
+    if (!patterns.some((p) => p.toLowerCase() === val.toLowerCase())) {
       patterns.push(val);
       save();
       render();
@@ -912,12 +956,17 @@ function showCardExclusionsModal(panel) {
 
   addBtn.addEventListener('click', addPattern);
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); addPattern(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addPattern();
+    }
   });
 
   // Close modal
   dialog.querySelector('.tcgmizer-card-exclusion-close').addEventListener('click', () => modal.remove());
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.remove();
+  });
 
   // Load current patterns
   chrome.storage.sync.get('cardExclusions', (data) => {

@@ -5,6 +5,7 @@
   "scripts": {
     "build": "node build.js",
     "watch": "node build.js --watch",
+    "format": "prettier --write 'src/**/*.{js,css,html}' 'test/**/*.js'",
     "test": "node --experimental-vm-modules node_modules/.bin/jest || node test/test-ilp.js"
   },
   "keywords": [
@@ -20,6 +21,7 @@
     "highs": "^1.8.0"
   },
   "devDependencies": {
-    "esbuild": "^0.27.4"
+    "esbuild": "^0.27.4",
+    "prettier": "^3.8.1"
   }
 }

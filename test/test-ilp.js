@@ -50,25 +50,115 @@ console.log('Test 1: Basic 3-card, 3-seller scenario');
   ];
 
   const sellers = {
-    s1: { sellerName: 'Store Alpha', shippingCost: 1.00, freeShippingThreshold: 5.00 },
-    s2: { sellerName: 'Store Beta', shippingCost: 2.00, freeShippingThreshold: null },
-    s3: { sellerName: 'Store Gamma', shippingCost: 0.50, freeShippingThreshold: 3.00 },
+    s1: { sellerName: 'Store Alpha', shippingCost: 1.0, freeShippingThreshold: 5.0 },
+    s2: { sellerName: 'Store Beta', shippingCost: 2.0, freeShippingThreshold: null },
+    s3: { sellerName: 'Store Gamma', shippingCost: 0.5, freeShippingThreshold: 3.0 },
   };
 
   // All cards available from all sellers at different prices
   const listings = [
     // Lightning Bolt
-    { listingId: 'l1', sellerId: 's1', slotId: 'c1', price: 1.50, skuId: 'sku1', condition: 'NM', setName: 'M10', language: 'EN', productConditionId: 'pc1' },
-    { listingId: 'l2', sellerId: 's2', slotId: 'c1', price: 1.00, skuId: 'sku2', condition: 'NM', setName: 'M10', language: 'EN', productConditionId: 'pc2' },
-    { listingId: 'l3', sellerId: 's3', slotId: 'c1', price: 1.25, skuId: 'sku3', condition: 'NM', setName: 'M10', language: 'EN', productConditionId: 'pc3' },
+    {
+      listingId: 'l1',
+      sellerId: 's1',
+      slotId: 'c1',
+      price: 1.5,
+      skuId: 'sku1',
+      condition: 'NM',
+      setName: 'M10',
+      language: 'EN',
+      productConditionId: 'pc1',
+    },
+    {
+      listingId: 'l2',
+      sellerId: 's2',
+      slotId: 'c1',
+      price: 1.0,
+      skuId: 'sku2',
+      condition: 'NM',
+      setName: 'M10',
+      language: 'EN',
+      productConditionId: 'pc2',
+    },
+    {
+      listingId: 'l3',
+      sellerId: 's3',
+      slotId: 'c1',
+      price: 1.25,
+      skuId: 'sku3',
+      condition: 'NM',
+      setName: 'M10',
+      language: 'EN',
+      productConditionId: 'pc3',
+    },
     // Counterspell
-    { listingId: 'l4', sellerId: 's1', slotId: 'c2', price: 2.00, skuId: 'sku4', condition: 'NM', setName: 'ICE', language: 'EN', productConditionId: 'pc4' },
-    { listingId: 'l5', sellerId: 's2', slotId: 'c2', price: 2.50, skuId: 'sku5', condition: 'NM', setName: 'ICE', language: 'EN', productConditionId: 'pc5' },
-    { listingId: 'l6', sellerId: 's3', slotId: 'c2', price: 2.25, skuId: 'sku6', condition: 'NM', setName: 'ICE', language: 'EN', productConditionId: 'pc6' },
+    {
+      listingId: 'l4',
+      sellerId: 's1',
+      slotId: 'c2',
+      price: 2.0,
+      skuId: 'sku4',
+      condition: 'NM',
+      setName: 'ICE',
+      language: 'EN',
+      productConditionId: 'pc4',
+    },
+    {
+      listingId: 'l5',
+      sellerId: 's2',
+      slotId: 'c2',
+      price: 2.5,
+      skuId: 'sku5',
+      condition: 'NM',
+      setName: 'ICE',
+      language: 'EN',
+      productConditionId: 'pc5',
+    },
+    {
+      listingId: 'l6',
+      sellerId: 's3',
+      slotId: 'c2',
+      price: 2.25,
+      skuId: 'sku6',
+      condition: 'NM',
+      setName: 'ICE',
+      language: 'EN',
+      productConditionId: 'pc6',
+    },
     // Dark Ritual
-    { listingId: 'l7', sellerId: 's1', slotId: 'c3', price: 0.75, skuId: 'sku7', condition: 'NM', setName: 'ICE', language: 'EN', productConditionId: 'pc7' },
-    { listingId: 'l8', sellerId: 's2', slotId: 'c3', price: 0.50, skuId: 'sku8', condition: 'NM', setName: 'ICE', language: 'EN', productConditionId: 'pc8' },
-    { listingId: 'l9', sellerId: 's3', slotId: 'c3', price: 0.60, skuId: 'sku9', condition: 'NM', setName: 'ICE', language: 'EN', productConditionId: 'pc9' },
+    {
+      listingId: 'l7',
+      sellerId: 's1',
+      slotId: 'c3',
+      price: 0.75,
+      skuId: 'sku7',
+      condition: 'NM',
+      setName: 'ICE',
+      language: 'EN',
+      productConditionId: 'pc7',
+    },
+    {
+      listingId: 'l8',
+      sellerId: 's2',
+      slotId: 'c3',
+      price: 0.5,
+      skuId: 'sku8',
+      condition: 'NM',
+      setName: 'ICE',
+      language: 'EN',
+      productConditionId: 'pc8',
+    },
+    {
+      listingId: 'l9',
+      sellerId: 's3',
+      slotId: 'c3',
+      price: 0.6,
+      skuId: 'sku9',
+      condition: 'NM',
+      setName: 'ICE',
+      language: 'EN',
+      productConditionId: 'pc9',
+    },
   ];
 
   const { lp, variableMap } = buildLP({ cardSlots, sellers, listings });
@@ -98,7 +188,7 @@ console.log('Test 1: Basic 3-card, 3-seller scenario');
     assert(solution.Status === 'Optimal', `Expected Optimal, got ${solution.Status}`);
   });
 
-  const result = parseSolution(solution, variableMap, cardSlots, sellers, 10.00);
+  const result = parseSolution(solution, variableMap, cardSlots, sellers, 10.0);
 
   test('Result is successful', () => {
     assert(result.success === true, 'Result should be successful');
@@ -113,10 +203,12 @@ console.log('Test 1: Basic 3-card, 3-seller scenario');
     // But that means 3 sellers × shipping = expensive
     // Optimal should consolidate to minimize total including shipping
     assert(result.totalCost > 0, 'Total cost should be positive');
-    assert(result.totalCost < 10.00, 'Total cost should be less than naive $10');
+    assert(result.totalCost < 10.0, 'Total cost should be less than naive $10');
     console.log(`    Optimal total: $${result.totalCost} (${result.sellerCount} sellers)`);
     for (const s of result.sellers) {
-      console.log(`      ${s.sellerName}: $${s.subtotal} items + $${s.shippingCost} ship = $${s.sellerTotal} (${s.items.length} items, free=${s.freeShipping})`);
+      console.log(
+        `      ${s.sellerName}: $${s.subtotal} items + $${s.shippingCost} ship = $${s.sellerTotal} (${s.items.length} items, free=${s.freeShipping})`,
+      );
     }
   });
 }
@@ -137,17 +229,57 @@ console.log('\nTest 2: Shipping threshold exploitation');
   ];
 
   const sellers = {
-    s1: { sellerName: 'BigStore', shippingCost: 4.99, freeShippingThreshold: 5.00 },
+    s1: { sellerName: 'BigStore', shippingCost: 4.99, freeShippingThreshold: 5.0 },
     s2: { sellerName: 'SmallStore', shippingCost: 1.29, freeShippingThreshold: null },
   };
 
   const listings = [
     // Card A: BigStore $3.00, SmallStore $2.50
-    { listingId: 'l1', sellerId: 's1', slotId: 'c1', price: 3.00, skuId: 'sku1', condition: 'NM', setName: 'SET', language: 'EN', productConditionId: 'pc1' },
-    { listingId: 'l2', sellerId: 's2', slotId: 'c1', price: 2.50, skuId: 'sku2', condition: 'NM', setName: 'SET', language: 'EN', productConditionId: 'pc2' },
+    {
+      listingId: 'l1',
+      sellerId: 's1',
+      slotId: 'c1',
+      price: 3.0,
+      skuId: 'sku1',
+      condition: 'NM',
+      setName: 'SET',
+      language: 'EN',
+      productConditionId: 'pc1',
+    },
+    {
+      listingId: 'l2',
+      sellerId: 's2',
+      slotId: 'c1',
+      price: 2.5,
+      skuId: 'sku2',
+      condition: 'NM',
+      setName: 'SET',
+      language: 'EN',
+      productConditionId: 'pc2',
+    },
     // Card B: BigStore $2.50, SmallStore $2.25
-    { listingId: 'l3', sellerId: 's1', slotId: 'c2', price: 2.50, skuId: 'sku3', condition: 'NM', setName: 'SET', language: 'EN', productConditionId: 'pc3' },
-    { listingId: 'l4', sellerId: 's2', slotId: 'c2', price: 2.25, skuId: 'sku4', condition: 'NM', setName: 'SET', language: 'EN', productConditionId: 'pc4' },
+    {
+      listingId: 'l3',
+      sellerId: 's1',
+      slotId: 'c2',
+      price: 2.5,
+      skuId: 'sku3',
+      condition: 'NM',
+      setName: 'SET',
+      language: 'EN',
+      productConditionId: 'pc3',
+    },
+    {
+      listingId: 'l4',
+      sellerId: 's2',
+      slotId: 'c2',
+      price: 2.25,
+      skuId: 'sku4',
+      condition: 'NM',
+      setName: 'SET',
+      language: 'EN',
+      productConditionId: 'pc4',
+    },
   ];
 
   // Naive cheapest per card: Card A from SmallStore ($2.50), Card B from SmallStore ($2.25)
@@ -161,13 +293,13 @@ console.log('\nTest 2: Shipping threshold exploitation');
 
   const { lp, variableMap } = buildLP({ cardSlots, sellers, listings });
   const solution = highs.solve(lp);
-  const result = parseSolution(solution, variableMap, cardSlots, sellers, 8.00);
+  const result = parseSolution(solution, variableMap, cardSlots, sellers, 8.0);
 
   test('Solver exploits free shipping threshold', () => {
     // Both from BigStore = $5.50 (free shipping)
     // Both from SmallStore = $4.75 + $1.29 = $6.04
     // Split: more expensive
-    assertClose(result.totalCost, 5.50, 'Should buy both from BigStore for free shipping');
+    assertClose(result.totalCost, 5.5, 'Should buy both from BigStore for free shipping');
     console.log(`    Optimal: $${result.totalCost} from ${result.sellerCount} seller(s)`);
     for (const s of result.sellers) {
       console.log(`      ${s.sellerName}: $${s.subtotal} + $${s.shippingCost} ship (free=${s.freeShipping})`);
@@ -175,7 +307,7 @@ console.log('\nTest 2: Shipping threshold exploitation');
   });
 
   test('BigStore gets free shipping', () => {
-    const bigStore = result.sellers.find(s => s.sellerName === 'BigStore');
+    const bigStore = result.sellers.find((s) => s.sellerName === 'BigStore');
     assert(bigStore, 'BigStore should be used');
     assert(bigStore.freeShipping === true, 'BigStore should have free shipping');
   });
@@ -237,7 +369,9 @@ console.log('\nTest 3: Scale test (20 cards, 10 sellers)');
   test('Solves 20-card problem successfully', () => {
     assert(solution.Status === 'Optimal', `Status: ${solution.Status}`);
     assert(result.itemCount === NUM_CARDS, `Expected ${NUM_CARDS} items`);
-    console.log(`    Solved in ${elapsed.toFixed(0)}ms: $${result.totalCost.toFixed(2)} from ${result.sellerCount} sellers`);
+    console.log(
+      `    Solved in ${elapsed.toFixed(0)}ms: $${result.totalCost.toFixed(2)} from ${result.sellerCount} sellers`,
+    );
   });
 
   test('Solves in under 1 second', () => {
@@ -279,7 +413,7 @@ console.log('\nTest 4: Large scale test (100 cards, 50 sellers, ~25 listings eac
         listingId: `l_${i}_${j}`,
         sellerId: `s${j}`,
         slotId: `c${i}`,
-        price: 0.10 + Math.random() * 15,
+        price: 0.1 + Math.random() * 15,
         skuId: `sku_${i}_${j}`,
         condition: 'NM',
         setName: 'SET',
@@ -303,8 +437,12 @@ console.log('\nTest 4: Large scale test (100 cards, 50 sellers, ~25 listings eac
     assert(solution.Status === 'Optimal', `Status: ${solution.Status}`);
     assert(result.itemCount === NUM_CARDS, `Expected ${NUM_CARDS} items, got ${result.itemCount}`);
     console.log(`    Build: ${buildTime.toFixed(0)}ms, Solve: ${solveTime.toFixed(0)}ms`);
-    console.log(`    LP: ${lp.length} chars, ${Object.keys(variableMap.x).length} x-vars, ${Object.keys(variableMap.y).length} y-vars, ${Object.keys(variableMap.z).length} z-vars`);
-    console.log(`    Result: $${result.totalCost.toFixed(2)} from ${result.sellerCount} sellers, items: $${result.totalItemCost.toFixed(2)}, shipping: $${result.totalShipping.toFixed(2)}`);
+    console.log(
+      `    LP: ${lp.length} chars, ${Object.keys(variableMap.x).length} x-vars, ${Object.keys(variableMap.y).length} y-vars, ${Object.keys(variableMap.z).length} z-vars`,
+    );
+    console.log(
+      `    Result: $${result.totalCost.toFixed(2)} from ${result.sellerCount} sellers, items: $${result.totalItemCost.toFixed(2)}, shipping: $${result.totalShipping.toFixed(2)}`,
+    );
   });
 
   test('Solves in under 5 seconds', () => {

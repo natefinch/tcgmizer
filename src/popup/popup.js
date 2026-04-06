@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
               files: ['dist/content.js'],
             });
             // Give the content script a moment to initialize
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise((r) => setTimeout(r, 200));
             await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_PANEL' });
           } catch (injectErr) {
             console.error('[TCGmizer Popup] Failed to inject content script:', injectErr);

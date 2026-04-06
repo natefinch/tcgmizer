@@ -4,7 +4,14 @@
  * Loads HiGHS WASM solver directly (no offscreen document needed).
  */
 
-import { MSG, STAGE, DEFAULT_SOLVER_TIMEOUT_S, DEFAULT_TOP_K_LISTINGS, MAX_ALTERNATIVE_PRINTINGS, DEFAULT_CARD_EXCLUSIONS } from '../shared/constants.js';
+import {
+  MSG,
+  STAGE,
+  DEFAULT_SOLVER_TIMEOUT_S,
+  DEFAULT_TOP_K_LISTINGS,
+  MAX_ALTERNATIVE_PRINTINGS,
+  DEFAULT_CARD_EXCLUSIONS,
+} from '../shared/constants.js';
 import { buildLP } from '../shared/ilp-builder.js';
 import { parseSolution } from '../shared/solution-parser.js';
 import { remapDirectListings } from '../shared/direct-remapper.js';
@@ -50,7 +57,7 @@ async function getHighs() {
       locateFile: (file) => {
         if (file.endsWith('.wasm')) return wasmUrl;
         return file;
-      }
+      },
     });
 
     console.log('[TCGmizer SW] HiGHS WASM solver initialized successfully');
@@ -80,7 +87,9 @@ async function solveILP(lpString, timeLimit) {
   }
   if (lpString.includes('NaN')) {
     const nanIdx = lpString.indexOf('NaN');
-    throw new Error(`LP string contains NaN at position ${nanIdx}: ...${lpString.substring(Math.max(0, nanIdx - 30), nanIdx + 30)}...`);
+    throw new Error(
+      `LP string contains NaN at position ${nanIdx}: ...${lpString.substring(Math.max(0, nanIdx - 30), nanIdx + 30)}...`,
+    );
   }
 
   const startTime = performance.now();
@@ -91,7 +100,9 @@ async function solveILP(lpString, timeLimit) {
   });
 
   const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-  console.log(`[TCGmizer SW] Solved in ${elapsed}s — Status: ${solution.Status}, Objective: ${solution.ObjectiveValue}`);
+  console.log(
+    `[TCGmizer SW] Solved in ${elapsed}s — Status: ${solution.Status}, Objective: ${solution.ObjectiveValue}`,
+  );
   return solution;
 }
 
@@ -99,7 +110,7 @@ async function solveILP(lpString, timeLimit) {
  * Send a message to a specific tab's content script.
  */
 function sendToTab(tabId, message) {
-  chrome.tabs.sendMessage(tabId, message).catch(err => {
+  chrome.tabs.sendMessage(tabId, message).catch((err) => {
     console.warn('[TCGmizer] Failed to send message to tab:', err);
   });
 }
@@ -135,7 +146,7 @@ async function runFetchPhase(tabId, cartData) {
     // Custom listings in the cart have a customListingKey but no productId.
     // First try to resolve from other cart items with the same card name,
     // then fall back to searching by name.
-    const customItems = cartItems.filter(i => !i.productId && i.customListingKey);
+    const customItems = cartItems.filter((i) => !i.productId && i.customListingKey);
     if (customItems.length > 0) {
       console.log(`[TCGmizer SW] Resolving ${customItems.length} custom listing item(s) by card name`);
       sendProgress(tabId, STAGE.FETCHING_LISTINGS, { message: `Resolving ${customItems.length} custom listing(s)...` });
@@ -153,7 +164,9 @@ async function runFetchPhase(tabId, cartData) {
         const knownId = knownProductIds.get(item.cardName);
         if (knownId) {
           item.productId = knownId;
-          console.log(`[TCGmizer SW] Resolved custom listing "${item.cardName}" → productId ${item.productId} (from cart)`);
+          console.log(
+            `[TCGmizer SW] Resolved custom listing "${item.cardName}" → productId ${item.productId} (from cart)`,
+          );
           continue;
         }
 
@@ -165,21 +178,26 @@ async function runFetchPhase(tabId, cartData) {
           if (!item.setName && printings[0].setName) {
             item.setName = printings[0].setName;
           }
-          console.log(`[TCGmizer SW] Resolved custom listing "${item.cardName}" → productId ${item.productId} (${printings[0].setName || 'unknown set'})`);
+          console.log(
+            `[TCGmizer SW] Resolved custom listing "${item.cardName}" → productId ${item.productId} (${printings[0].setName || 'unknown set'})`,
+          );
         } else {
           console.warn(`[TCGmizer SW] Could not resolve custom listing "${item.cardName}" — no search results`);
         }
       }
 
       // Filter out any items that still don't have a product ID
-      const unresolved = cartItems.filter(i => !i.productId);
+      const unresolved = cartItems.filter((i) => !i.productId);
       if (unresolved.length > 0) {
-        console.warn(`[TCGmizer SW] ${unresolved.length} item(s) could not be resolved:`, unresolved.map(i => i.cardName).join(', '));
+        console.warn(
+          `[TCGmizer SW] ${unresolved.length} item(s) could not be resolved:`,
+          unresolved.map((i) => i.cardName).join(', '),
+        );
       }
     }
 
     // Filter to only items with a valid productId
-    const resolvedItems = cartItems.filter(i => i.productId);
+    const resolvedItems = cartItems.filter((i) => i.productId);
     if (resolvedItems.length === 0) {
       sendToTab(tabId, { type: MSG.OPTIMIZATION_ERROR, error: 'Could not resolve any cart items to products.' });
       return;
@@ -218,7 +236,7 @@ async function runFetchPhase(tabId, cartData) {
     }
 
     // --- Step 2: Search for all printings of each unique card name ---
-    const uniqueCardNames = [...new Set(resolvedItems.map(i => i.cardName))];
+    const uniqueCardNames = [...new Set(resolvedItems.map((i) => i.cardName))];
     const cardNameToProductIds = new Map(); // cardName → Set<productId>
     const productIdToSetName = new Map();
 
@@ -226,7 +244,7 @@ async function runFetchPhase(tabId, cartData) {
     let detectedProductLineSlug = null;
     for (const item of resolvedItems) {
       if (item.setName && item.setName.includes(',')) {
-        const parts = item.setName.split(',').map(s => s.trim());
+        const parts = item.setName.split(',').map((s) => s.trim());
         // Product line name is typically the second field
         if (parts.length >= 2) {
           const slug = await lookupProductLineSlug(parts[1]);
@@ -254,18 +272,8 @@ async function runFetchPhase(tabId, cartData) {
       total: uniqueCardNames.length,
     });
 
-    // Load card exclusion settings for alternate-printing filtering
-    const [settingsData, patternsData] = await Promise.all([
-      chrome.storage.local.get('optimizerSettings'),
-      chrome.storage.sync.get('cardExclusions'),
-    ]);
-    const cardExclusionsEnabled = settingsData.optimizerSettings?.cardExclusionsEnabled ?? true;
-    const cardExclusions = patternsData.cardExclusions ?? DEFAULT_CARD_EXCLUSIONS;
-    const excludePatterns = cardExclusionsEnabled ? cardExclusions : [];
-
     const printingsResult = await searchAllCardPrintings(uniqueCardNames, seenProducts, {
       productLineName: detectedProductLineSlug,
-      excludePatterns,
       onProgress: ({ current, total }) => {
         sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
           message: 'Searching for alternative printings...',
@@ -301,7 +309,9 @@ async function runFetchPhase(tabId, cartData) {
       productCards.push(pc);
     }
 
-    console.log(`[TCGmizer SW] Found ${productCards.length} total products (${productCards.length - uniqueCardNames.length} alternative printings)`);
+    console.log(
+      `[TCGmizer SW] Found ${productCards.length} total products (${productCards.length - uniqueCardNames.length} alternative printings)`,
+    );
 
     // --- Step 3: Fetch listings ---
     sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
@@ -310,7 +320,7 @@ async function runFetchPhase(tabId, cartData) {
       total: productCards.length,
     });
 
-    const fetchCards = productCards.map(pc => ({
+    const fetchCards = productCards.map((pc) => ({
       productId: pc.productId,
       slotId: `__product_${pc.productId}`,
       cardName: pc.cardName,
@@ -378,7 +388,9 @@ async function runFetchPhase(tabId, cartData) {
       return;
     }
 
-    console.log(`[TCGmizer SW] Fetched ${rawListings.length} raw listings from ${Object.keys(sellers).length} sellers, expanded to ${allListings.length} slot-listings`);
+    console.log(
+      `[TCGmizer SW] Fetched ${rawListings.length} raw listings from ${Object.keys(sellers).length} sellers, expanded to ${allListings.length} slot-listings`,
+    );
 
     // Cache for re-solving with different config (persists across SW restarts)
     // Convert Map to Object for JSON serialization in chrome.storage
@@ -413,7 +425,6 @@ async function runFetchPhase(tabId, cartData) {
         sellerCount: Object.keys(sellers).length,
       },
     });
-
   } catch (err) {
     console.error('[TCGmizer SW] Fetch phase error:', err);
     sendToTab(tabId, {
@@ -451,40 +462,41 @@ async function runSolvePhase(tabId, config) {
 
     const { cardSlots, allListings, sellers, currentCartTotal, productNames } = cached;
 
-    console.log(`[TCGmizer SW] Solve phase starting: ${cardSlots.length} slots, ${allListings.length} cached listings, ${Object.keys(sellers).length} sellers, config:`, JSON.stringify(config));
+    console.log(
+      `[TCGmizer SW] Solve phase starting: ${cardSlots.length} slots, ${allListings.length} cached listings, ${Object.keys(sellers).length} sellers, config:`,
+      JSON.stringify(config),
+    );
 
     sendProgress(tabId, STAGE.BUILDING_ILP, { message: 'Filtering listings...' });
 
     // Apply filters
     let filteredListings = allListings;
 
-    // Card exclusion filter: re-check current patterns from storage at solve time
-    // so that newly added patterns take effect without re-fetching
+    // Card exclusion filter: use cardExclusionsEnabled from config (passed directly
+    // from the UI checkbox) and read patterns from storage.
     if (productNames) {
-      const [settingsData, patternsData] = await Promise.all([
-        chrome.storage.local.get('optimizerSettings'),
-        chrome.storage.sync.get('cardExclusions'),
-      ]);
-      const cardExclusionsEnabled = settingsData.optimizerSettings?.cardExclusionsEnabled ?? true;
+      const cardExclusionsEnabled = config.cardExclusionsEnabled ?? true;
+      const patternsData = await chrome.storage.sync.get('cardExclusions');
       const rawPatterns = patternsData.cardExclusions ?? DEFAULT_CARD_EXCLUSIONS;
       if (cardExclusionsEnabled && rawPatterns.length > 0) {
-        const patterns = rawPatterns.map(p => p.toLowerCase().trim()).filter(p => p.length > 0);
-        // Build set of excluded product IDs from the original cart items
-        const originalProductIds = new Set(cardSlots.map(s => s.productId));
+        const patterns = rawPatterns.map((p) => p.toLowerCase().trim()).filter((p) => p.length > 0);
+        const originalProductIds = new Set(cardSlots.map((s) => s.productId));
         const excludedProducts = new Set();
         for (const [pid, pName] of Object.entries(productNames)) {
           const id = typeof pid === 'string' ? parseInt(pid, 10) : pid;
           // Never exclude the user's original cart items
           if (originalProductIds.has(id)) continue;
           const lower = pName.toLowerCase();
-          if (patterns.some(pat => lower.includes(pat))) {
+          if (patterns.some((pat) => lower.includes(pat))) {
             excludedProducts.add(id);
           }
         }
         if (excludedProducts.size > 0) {
           const before = filteredListings.length;
-          filteredListings = filteredListings.filter(l => !excludedProducts.has(l.productId));
-          console.log(`[TCGmizer SW] Card exclusion filter: ${before} → ${filteredListings.length} listings (excluded ${excludedProducts.size} products)`);
+          filteredListings = filteredListings.filter((l) => !excludedProducts.has(l.productId));
+          console.log(
+            `[TCGmizer SW] Card exclusion filter: ${before} → ${filteredListings.length} listings (excluded ${excludedProducts.size} products)`,
+          );
         }
       }
     }
@@ -492,15 +504,19 @@ async function runSolvePhase(tabId, config) {
     if (config.languages && config.languages.length > 0) {
       const langSet = new Set(config.languages);
       const before = filteredListings.length;
-      filteredListings = filteredListings.filter(l => langSet.has(l.language));
-      console.log(`[TCGmizer SW] Language filter: ${before} → ${filteredListings.length} listings (languages: ${[...langSet].join(', ')})`);
+      filteredListings = filteredListings.filter((l) => langSet.has(l.language));
+      console.log(
+        `[TCGmizer SW] Language filter: ${before} → ${filteredListings.length} listings (languages: ${[...langSet].join(', ')})`,
+      );
     }
 
     if (config.conditions && config.conditions.length > 0) {
       const condSet = new Set(config.conditions);
       const before = filteredListings.length;
-      filteredListings = filteredListings.filter(l => condSet.has(l.condition));
-      console.log(`[TCGmizer SW] Condition filter: ${before} → ${filteredListings.length} listings (conditions: ${[...condSet].join(', ')})`);
+      filteredListings = filteredListings.filter((l) => condSet.has(l.condition));
+      console.log(
+        `[TCGmizer SW] Condition filter: ${before} → ${filteredListings.length} listings (conditions: ${[...condSet].join(', ')})`,
+      );
     }
 
     // Exact printings filter: only keep listings whose productId matches the cart's original productId
@@ -509,7 +525,7 @@ async function runSolvePhase(tabId, config) {
       for (const slot of cardSlots) {
         slotOriginalProduct.set(slot.slotId, slot.productId);
       }
-      filteredListings = filteredListings.filter(l => l.productId === slotOriginalProduct.get(l.slotId));
+      filteredListings = filteredListings.filter((l) => l.productId === slotOriginalProduct.get(l.slotId));
     }
 
     // Check coverage
@@ -518,10 +534,12 @@ async function runSolvePhase(tabId, config) {
       if (!listingsBySlot.has(l.slotId)) listingsBySlot.set(l.slotId, []);
       listingsBySlot.get(l.slotId).push(l);
     }
-    const uncoveredSlots = cardSlots.filter(s => !listingsBySlot.has(s.slotId) || listingsBySlot.get(s.slotId).length === 0);
+    const uncoveredSlots = cardSlots.filter(
+      (s) => !listingsBySlot.has(s.slotId) || listingsBySlot.get(s.slotId).length === 0,
+    );
 
     if (uncoveredSlots.length > 0) {
-      const names = [...new Set(uncoveredSlots.map(s => s.cardName))].slice(0, 5).join(', ');
+      const names = [...new Set(uncoveredSlots.map((s) => s.cardName))].slice(0, 5).join(', ');
       sendToTab(tabId, {
         type: MSG.OPTIMIZATION_ERROR,
         error: `No listings match your filters for: ${names}${uncoveredSlots.length > 5 ? ` (+${uncoveredSlots.length - 5} more)` : ''}. Try relaxing your language or condition filters.`,
@@ -534,14 +552,24 @@ async function runSolvePhase(tabId, config) {
     for (const l of filteredListings) {
       slotCoverage.set(l.slotId, (slotCoverage.get(l.slotId) || 0) + 1);
     }
-    const coveredSlots = cardSlots.filter(s => slotCoverage.has(s.slotId));
-    console.log(`[TCGmizer SW] After filtering: ${filteredListings.length} listings (from ${allListings.length}), covering ${coveredSlots.length}/${cardSlots.length} slots`);
-    
+    const coveredSlots = cardSlots.filter((s) => slotCoverage.has(s.slotId));
+    console.log(
+      `[TCGmizer SW] After filtering: ${filteredListings.length} listings (from ${allListings.length}), covering ${coveredSlots.length}/${cardSlots.length} slots`,
+    );
+
     // Log seller count and any sellers with NaN shipping
     const sellerKeys = Object.keys(sellers);
-    const badSellers = sellerKeys.filter(k => Number.isNaN(sellers[k].shippingCost) || Number.isNaN(sellers[k].freeShippingThreshold));
+    const badSellers = sellerKeys.filter(
+      (k) => Number.isNaN(sellers[k].shippingCost) || Number.isNaN(sellers[k].freeShippingThreshold),
+    );
     if (badSellers.length > 0) {
-      console.warn(`[TCGmizer SW] ${badSellers.length} sellers have NaN shipping data:`, badSellers.map(k => `${sellers[k].sellerName} (shipping=${sellers[k].shippingCost}, threshold=${sellers[k].freeShippingThreshold})`));
+      console.warn(
+        `[TCGmizer SW] ${badSellers.length} sellers have NaN shipping data:`,
+        badSellers.map(
+          (k) =>
+            `${sellers[k].sellerName} (shipping=${sellers[k].shippingCost}, threshold=${sellers[k].freeShippingThreshold})`,
+        ),
+      );
     }
 
     // Remap Direct listings to a synthetic seller so the ILP models them
@@ -559,7 +587,14 @@ async function runSolvePhase(tabId, config) {
       await runMultiSolve(tabId, cardSlots, solveSellers, solveListings, currentCartTotal, config, fallbackMap);
     } else {
       // Single solve — optimize for price first, then minimize vendors at that price
-      const result = await solveSingle(tabId, cardSlots, solveSellers, solveListings, currentCartTotal, config.maxSellers || null);
+      const result = await solveSingle(
+        tabId,
+        cardSlots,
+        solveSellers,
+        solveListings,
+        currentCartTotal,
+        config.maxSellers || null,
+      );
       if (result && result.success) {
         // Try to reduce vendor count without increasing price
         const optimalCost = result.totalCost;
@@ -594,7 +629,6 @@ async function runSolvePhase(tabId, config) {
         });
       }
     }
-
   } catch (err) {
     console.error('[TCGmizer SW] Solve phase error:', err);
     sendToTab(tabId, {
@@ -618,7 +652,8 @@ async function runSolvePhase(tabId, config) {
 function adaptiveTopK(numSlots, maxSellers) {
   // Base topK — used for both unconstrained and vendor-constrained solves
   let topK;
-  if (numSlots <= 30) topK = DEFAULT_TOP_K_LISTINGS;  // 40
+  if (numSlots <= 30)
+    topK = DEFAULT_TOP_K_LISTINGS; // 40
   else if (numSlots <= 60) topK = 30;
   else if (numSlots <= 100) topK = 20;
   else topK = 15;
@@ -643,12 +678,20 @@ async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentC
   const RETRY_SHRINK = maxSellers ? 0.5 : 0.6;
 
   let topK = adaptiveTopK(cardSlots.length, maxSellers);
-  console.log(`[TCGmizer SW] solveSingle: ${cardSlots.length} slots → initial topK=${topK}, maxSellers=${maxSellers}, maxRetries=${MAX_RETRIES}`);
+  console.log(
+    `[TCGmizer SW] solveSingle: ${cardSlots.length} slots → initial topK=${topK}, maxSellers=${maxSellers}, maxRetries=${MAX_RETRIES}`,
+  );
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const result = await solveSingleAttempt(
-      tabId, cardSlots, sellers, filteredListings, currentCartTotal,
-      maxSellers, topK, silent || attempt > 0  // silence retries to avoid double error messages
+      tabId,
+      cardSlots,
+      sellers,
+      filteredListings,
+      currentCartTotal,
+      maxSellers,
+      topK,
+      silent || attempt > 0, // silence retries to avoid double error messages
     );
 
     // 'WASM_ERROR' signals a crash that can be retried with a smaller model
@@ -659,7 +702,9 @@ async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentC
         console.error(`[TCGmizer SW] WASM crash at topK=${topK}, cannot reduce further`);
         break;
       }
-      console.warn(`[TCGmizer SW] WASM crash with topK=${topK}, retrying with topK=${nextTopK} (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      console.warn(
+        `[TCGmizer SW] WASM crash with topK=${topK}, retrying with topK=${nextTopK} (attempt ${attempt + 1}/${MAX_RETRIES})`,
+      );
       if (!silent) {
         sendProgress(tabId, STAGE.SOLVING, {
           message: `Solver crashed, retrying with reduced model (attempt ${attempt + 2})...`,
@@ -676,7 +721,8 @@ async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentC
   if (!silent) {
     sendToTab(tabId, {
       type: MSG.OPTIMIZATION_ERROR,
-      error: 'Solver crashed repeatedly. Try reducing the number of items in your cart or enabling "Exact printings only".',
+      error:
+        'Solver crashed repeatedly. Try reducing the number of items in your cart or enabling "Exact printings only".',
     });
   }
   return null;
@@ -686,12 +732,25 @@ async function solveSingle(tabId, cardSlots, sellers, filteredListings, currentC
  * Single attempt at solving with a given topK.
  * Returns parsed result, null (infeasible), or the string 'WASM_ERROR' if HiGHS crashed.
  */
-async function solveSingleAttempt(tabId, cardSlots, sellers, filteredListings, currentCartTotal, maxSellers, topK, silent) {
+async function solveSingleAttempt(
+  tabId,
+  cardSlots,
+  sellers,
+  filteredListings,
+  currentCartTotal,
+  maxSellers,
+  topK,
+  silent,
+) {
   if (!silent) {
-    sendProgress(tabId, STAGE.BUILDING_ILP, { message: maxSellers ? `Building model (max ${maxSellers} vendors)...` : 'Building optimization model...' });
+    sendProgress(tabId, STAGE.BUILDING_ILP, {
+      message: maxSellers ? `Building model (max ${maxSellers} vendors)...` : 'Building optimization model...',
+    });
   }
 
-  console.log(`[TCGmizer SW] solveSingleAttempt: ${cardSlots.length} slots, ${filteredListings.length} listings, ${Object.keys(sellers).length} sellers, maxSellers=${maxSellers}, topK=${topK}`);
+  console.log(
+    `[TCGmizer SW] solveSingleAttempt: ${cardSlots.length} slots, ${filteredListings.length} listings, ${Object.keys(sellers).length} sellers, maxSellers=${maxSellers}, topK=${topK}`,
+  );
 
   // Validate inputs
   const listingsBySlot = new Map();
@@ -699,9 +758,12 @@ async function solveSingleAttempt(tabId, cardSlots, sellers, filteredListings, c
     if (!listingsBySlot.has(l.slotId)) listingsBySlot.set(l.slotId, 0);
     listingsBySlot.set(l.slotId, listingsBySlot.get(l.slotId) + 1);
   }
-  const emptySlots = cardSlots.filter(s => !listingsBySlot.has(s.slotId));
+  const emptySlots = cardSlots.filter((s) => !listingsBySlot.has(s.slotId));
   if (emptySlots.length > 0) {
-    console.error(`[TCGmizer SW] ${emptySlots.length} slots have no listings:`, emptySlots.map(s => `${s.cardName} (${s.slotId})`).join(', '));
+    console.error(
+      `[TCGmizer SW] ${emptySlots.length} slots have no listings:`,
+      emptySlots.map((s) => `${s.cardName} (${s.slotId})`).join(', '),
+    );
   }
 
   let lpResult;
@@ -726,7 +788,9 @@ async function solveSingleAttempt(tabId, cardSlots, sellers, filteredListings, c
   const { lp, variableMap } = lpResult;
 
   if (!silent) {
-    sendProgress(tabId, STAGE.SOLVING, { message: maxSellers ? `Solving (max ${maxSellers} vendors)...` : 'Solving optimization model...' });
+    sendProgress(tabId, STAGE.SOLVING, {
+      message: maxSellers ? `Solving (max ${maxSellers} vendors)...` : 'Solving optimization model...',
+    });
   }
 
   let solution;
@@ -739,7 +803,12 @@ async function solveSingleAttempt(tabId, cardSlots, sellers, filteredListings, c
 
     // Detect WASM crash (memory/abort) — reset the corrupted HiGHS instance
     const msg = String(solveErr?.message || solveErr);
-    if (msg.includes('RuntimeError') || msg.includes('Aborted') || msg.includes('signature mismatch') || msg.includes('out of memory')) {
+    if (
+      msg.includes('RuntimeError') ||
+      msg.includes('Aborted') ||
+      msg.includes('signature mismatch') ||
+      msg.includes('out of memory')
+    ) {
       // Reset HiGHS instance — it's likely corrupted after a WASM crash
       highs = null;
       highsLoading = null;
@@ -811,7 +880,7 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
     }
 
     // Only add if it actually uses fewer vendors (solver might use fewer than max)
-    const isDuplicate = results.some(r => r.sellerCount === result.sellerCount);
+    const isDuplicate = results.some((r) => r.sellerCount === result.sellerCount);
     if (!isDuplicate) {
       results.push(result);
       console.log(`[TCGmizer SW] ${n} vendors max → ${result.sellerCount} vendors, $${result.totalCost}`);
@@ -828,9 +897,8 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
   for (let i = results.length - 1; i >= 1; i--) {
     const r = results[i];
     const rCents = Math.round(r.totalCost * 100);
-    const dominated = results.some(other =>
-      other.sellerCount < r.sellerCount &&
-      Math.round(other.totalCost * 100) <= rCents
+    const dominated = results.some(
+      (other) => other.sellerCount < r.sellerCount && Math.round(other.totalCost * 100) <= rCents,
     );
     if (dominated) {
       results.splice(i, 1);
@@ -864,7 +932,7 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
  */
 function buildFallbackMap(cardSlots, filteredListings, sellers) {
   // Get the set of unique card names
-  const cardNames = new Set(cardSlots.map(s => s.cardName));
+  const cardNames = new Set(cardSlots.map((s) => s.cardName));
 
   // Group all listings by card name (via slot → cardName mapping)
   const slotToCard = new Map();
@@ -926,7 +994,9 @@ async function saveTabCache(tabId, data) {
     console.log(`[TCGmizer SW] Cached ${data.allListings.length} listings for tab ${tabId} (memory + session storage)`);
   } catch (err) {
     // Session storage quota exceeded — in-memory cache is still valid
-    console.warn(`[TCGmizer SW] Session storage quota exceeded (${data.allListings.length} listings). Using in-memory cache only.`);
+    console.warn(
+      `[TCGmizer SW] Session storage quota exceeded (${data.allListings.length} listings). Using in-memory cache only.`,
+    );
   }
 }
 
@@ -1017,19 +1087,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case MSG.CLEAR_SELLER_CACHE:
-      clearSellerCache().then(() => {
-        sendResponse({ ok: true });
-      }).catch(err => {
-        sendResponse({ error: err.message });
-      });
+      clearSellerCache()
+        .then(() => {
+          sendResponse({ ok: true });
+        })
+        .catch((err) => {
+          sendResponse({ error: err.message });
+        });
       return true; // keep message channel open for async sendResponse
 
     case MSG.CLEAR_PRINTINGS_CACHE:
-      clearPrintingsCache().then(() => {
-        sendResponse({ ok: true });
-      }).catch(err => {
-        sendResponse({ error: err.message });
-      });
+      clearPrintingsCache()
+        .then(() => {
+          sendResponse({ ok: true });
+        })
+        .catch((err) => {
+          sendResponse({ error: err.message });
+        });
       return true; // keep message channel open for async sendResponse
 
     case MSG.DUMP_DATA:
@@ -1037,22 +1111,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: 'No tab ID' });
         return false;
       }
-      loadTabCache(tabId).then(cached => {
-        if (!cached) {
-          sendResponse({ error: 'No cached data. Run "Optimize Cart" first.' });
-          return;
-        }
-        sendResponse({
-          data: {
-            cardSlots: cached.cardSlots,
-            allListings: cached.allListings,
-            sellers: cached.sellers,
-            currentCartTotal: cached.currentCartTotal,
-          },
+      loadTabCache(tabId)
+        .then((cached) => {
+          if (!cached) {
+            sendResponse({ error: 'No cached data. Run "Optimize Cart" first.' });
+            return;
+          }
+          sendResponse({
+            data: {
+              cardSlots: cached.cardSlots,
+              allListings: cached.allListings,
+              sellers: cached.sellers,
+              currentCartTotal: cached.currentCartTotal,
+            },
+          });
+        })
+        .catch((err) => {
+          sendResponse({ error: err.message });
         });
-      }).catch(err => {
-        sendResponse({ error: err.message });
-      });
       return true; // keep message channel open for async sendResponse
 
     default:

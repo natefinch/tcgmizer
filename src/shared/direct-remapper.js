@@ -20,7 +20,7 @@ export function remapDirectListings(listings, sellers) {
   const DIRECT_SELLER_ID = '__tcgplayer_direct__';
 
   let remappedCount = 0;
-  const remapped = listings.map(l => {
+  const remapped = listings.map((l) => {
     // Remap ALL Direct listings to the synthetic Direct seller
     if (!l.directListing) return l;
     remappedCount++;

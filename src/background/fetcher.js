@@ -1,4 +1,11 @@
-import { DEFAULT_FETCH_DELAY_MS, DEFAULT_MAX_LISTINGS_PER_CARD, DEFAULT_FETCH_CONCURRENCY, LISTINGS_PER_PAGE, MAX_ALTERNATIVE_PRINTINGS, SEARCH_RESULTS_PER_PAGE } from '../shared/constants.js';
+import {
+  DEFAULT_FETCH_DELAY_MS,
+  DEFAULT_MAX_LISTINGS_PER_CARD,
+  DEFAULT_FETCH_CONCURRENCY,
+  LISTINGS_PER_PAGE,
+  MAX_ALTERNATIVE_PRINTINGS,
+  SEARCH_RESULTS_PER_PAGE,
+} from '../shared/constants.js';
 import { pruneExpiredEntries, getCachedSellers, cacheSellers } from './seller-cache.js';
 import { pruneExpiredEntries as prunePrintingsCache, getCachedPrintings, cachePrintings } from './printings-cache.js';
 
@@ -19,7 +26,7 @@ export async function fetchProductLines() {
 
   try {
     const response = await fetch(`${SEARCH_API_BASE}/v1/search/productLines`, {
-      headers: { 'Accept': 'application/json' },
+      headers: { Accept: 'application/json' },
     });
 
     if (!response.ok) {
@@ -103,9 +110,7 @@ export async function fetchAllListings(cards, options = {}) {
    */
   async function fetchOne(product) {
     try {
-      const cardListings = await fetchListingsForProduct(
-        product.productId, product.slotIds[0], maxListings
-      );
+      const cardListings = await fetchListingsForProduct(product.productId, product.slotIds[0], maxListings);
       return { product, cardListings, error: null };
     } catch (err) {
       return { product, cardListings: [], error: err };
@@ -120,7 +125,10 @@ export async function fetchAllListings(cards, options = {}) {
     onProgress({ current: completedCount, total: uniqueProducts.length, cardName: product.cardName });
 
     if (error) {
-      console.warn(`[TCGmizer] Failed to fetch listings for ${product.cardName} (product ${product.productId}):`, error);
+      console.warn(
+        `[TCGmizer] Failed to fetch listings for ${product.cardName} (product ${product.productId}):`,
+        error,
+      );
       return;
     }
 
@@ -166,7 +174,7 @@ export async function fetchAllListings(cards, options = {}) {
           return fetchOne(product);
         })();
         // Tag the promise so we can remove it from inflight when done
-        const tracked = promise.then(result => {
+        const tracked = promise.then((result) => {
           inflight.delete(tracked);
           processResult(result);
         });
@@ -243,13 +251,15 @@ export async function fetchAllListings(cards, options = {}) {
   // additions always fail with CAPI-35 ProductCategoryNotVisible).
   // Cached sellers are always considered known (they responded previously).
   if (knownSellerKeys.size > 0) {
-    const ghostKeys = Object.keys(sellersMap).filter(k => !knownSellerKeys.has(k));
+    const ghostKeys = Object.keys(sellersMap).filter((k) => !knownSellerKeys.has(k));
     if (ghostKeys.length > 0) {
       const ghostSet = new Set(ghostKeys);
       const beforeCount = allListings.length;
-      const filtered = allListings.filter(l => !ghostSet.has(l.sellerId));
+      const filtered = allListings.filter((l) => !ghostSet.has(l.sellerId));
       const removed = beforeCount - filtered.length;
-      console.log(`[TCGmizer] Excluded ${ghostKeys.length} ghost seller(s) (${removed} listings): ${ghostKeys.map(k => sellersMap[k]?.sellerName || k).join(', ')}`);
+      console.log(
+        `[TCGmizer] Excluded ${ghostKeys.length} ghost seller(s) (${removed} listings): ${ghostKeys.map((k) => sellersMap[k]?.sellerName || k).join(', ')}`,
+      );
       // Remove ghost sellers from sellersMap
       for (const k of ghostKeys) {
         delete sellersMap[k];
@@ -302,7 +312,7 @@ async function fetchListingsForProduct(productId, slotId, maxListings) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify(requestBody),
       });
@@ -364,14 +374,14 @@ async function fetchListingsForProduct(productId, slotId, maxListings) {
  * Body: [{sellerId, largestShippingCategoryId}]
  */
 async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}) {
-  const sellerEntries = Object.values(sellersMap).filter(s => s.sellerNumericId);
+  const sellerEntries = Object.values(sellersMap).filter((s) => s.sellerNumericId);
   const respondedSellerKeys = new Set();
 
   if (sellerEntries.length === 0) return respondedSellerKeys;
 
   // Build the request body: [{sellerId, largestShippingCategoryId: 1}]
   // Category 1 = singles (cards), which is what TCG cart optimization focuses on
-  const body = sellerEntries.map(s => ({
+  const body = sellerEntries.map((s) => ({
     sellerId: s.sellerNumericId,
     largestShippingCategoryId: 1,
   }));
@@ -390,7 +400,7 @@ async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify(batch),
       });
@@ -403,7 +413,7 @@ async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}
       const data = await response.json();
       const results = data?.results?.[0] || data?.results || [];
 
-      for (const sellerShipping of (Array.isArray(results) ? results : [])) {
+      for (const sellerShipping of Array.isArray(results) ? results : []) {
         const key = sellerShipping.sellerKey;
         if (key) respondedSellerKeys.add(key);
         if (key && sellersMap[key]) {
@@ -441,18 +451,21 @@ async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}
  */
 export async function searchProductsByName(cardName, productLineName = null) {
   try {
+    // Strip parenthesized suffixes (e.g. "(Borderless)", "(Extended Art)") so we
+    // find all printings of the base card.  Keep the base name for matching too.
+    const baseName = cardName.replace(/\s*\([^)]*\)/g, '').trim() || cardName.trim();
     const termFilters = {};
     if (productLineName) {
       termFilters.productLineName = [productLineName];
     }
 
     const response = await fetch(
-      `${SEARCH_API_BASE}/v1/search/request?q=${encodeURIComponent(cardName)}&isList=false`,
+      `${SEARCH_API_BASE}/v1/search/request?q=${encodeURIComponent(baseName)}&isList=false`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify({
           algorithm: 'revenue_dismax',
@@ -481,7 +494,7 @@ export async function searchProductsByName(cardName, productLineName = null) {
           },
           sort: {},
         }),
-      }
+      },
     );
 
     if (!response.ok) {
@@ -492,17 +505,18 @@ export async function searchProductsByName(cardName, productLineName = null) {
     const data = await response.json();
     const results = data?.results?.[0]?.results || [];
 
-    // Match exact card name or card name with treatment suffix like " (Extended Art)"
-    const lowerName = cardName.toLowerCase().trim();
+    // Match exact base card name or base name with treatment suffix like " (Extended Art)"
+    const lowerBase = baseName.toLowerCase();
     return results
-      .filter(p => {
+      .filter((p) => {
         const pName = (p.productName || '').toLowerCase().trim();
-        if (pName !== lowerName && !pName.startsWith(lowerName + ' (')) return false;
+        const pBase = pName.replace(/\s*\([^)]*\)/g, '').trim();
+        if (pBase !== lowerBase && !pName.startsWith(lowerBase + ' (')) return false;
         // Filter out products with no totalListings or 0 listings
         if (p.totalListings != null && p.totalListings === 0) return false;
         return true;
       })
-      .map(p => ({
+      .map((p) => ({
         productId: p.productId,
         productName: p.productName,
         setName: p.groupName || p.setName || '',
@@ -535,8 +549,6 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
   const onProgress = options.onProgress || (() => {});
   const productLineName = options.productLineName || null;
   const shouldCancel = options.shouldCancel || (() => false);
-  const excludePatterns = (options.excludePatterns || []).map(p => p.toLowerCase().trim()).filter(p => p.length > 0);
-
   // --- Printings cache: prune expired entries, serve cached, fetch only uncached ---
   const printingsCache = await prunePrintingsCache();
   const { cached: cachedPrintingsMap, uncachedNames } = getCachedPrintings(cardNames, printingsCache);
@@ -585,7 +597,7 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
         if (inflight.size > 0) await sleep(delayMs);
         return searchOne(name);
       })();
-      const tracked = promise.then(result => {
+      const tracked = promise.then((result) => {
         inflight.delete(tracked);
         completedCount++;
         onProgress({ current: completedCount, total: cardNames.length });
@@ -646,14 +658,6 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
         continue;
       }
 
-      // Skip excluded card printings (e.g. "(Display Commander)", "(Art Series)")
-      if (excludePatterns.length > 0) {
-        const pNameLower = (p.productName || '').toLowerCase();
-        if (excludePatterns.some(pat => pNameLower.includes(pat))) {
-          continue;
-        }
-      }
-
       if (!localSeen.has(p.productId)) {
         localSeen.add(p.productId);
         cardNameToProductIds.get(name).add(p.productId);
@@ -675,5 +679,5 @@ export async function searchAllCardPrintings(cardNames, seenProducts, options = 
 }
 
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
