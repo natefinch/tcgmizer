@@ -15,6 +15,7 @@ import {
 import { buildLP } from '../shared/ilp-builder.js';
 import { parseSolution } from '../shared/solution-parser.js';
 import { remapDirectListings } from '../shared/direct-remapper.js';
+import { applyCardExclusions, annotateExclusionWarnings } from '../shared/exclusion-filter.js';
 import { fetchAllListings, searchProductsByName, searchAllCardPrintings, lookupProductLineSlug } from './fetcher.js';
 import { clearSellerCache } from './seller-cache.js';
 import { clearPrintingsCache } from './printings-cache.js';
@@ -445,6 +446,21 @@ function conditionSort(a, b) {
 }
 
 /**
+ * When the optimizer picks a different printing, update the item's cardName
+ * to match the chosen product instead of keeping the original cart item name.
+ */
+function fixChangedPrintingNames(result, productNames) {
+  if (!result?.success || !productNames) return;
+  for (const seller of result.sellers) {
+    for (const item of seller.items) {
+      if (item.printingChanged && productNames[item.productId]) {
+        item.cardName = productNames[item.productId];
+      }
+    }
+  }
+}
+
+/**
  * Solve phase — filters cached listings by user config and runs ILP solver.
  * If config.minimizeVendors is true, runs multiple solves to find the vendor/price tradeoff.
  */
@@ -474,28 +490,29 @@ async function runSolvePhase(tabId, config) {
 
     // Card exclusion filter: use cardExclusionsEnabled from config (passed directly
     // from the UI checkbox) and read patterns from storage.
-    if (productNames) {
+    // Skip exclusion when exactPrintings is on (contradictory: user wants exact versions).
+    let exclusionWarningProductIds = new Set();
+    if (productNames && !config.exactPrintings) {
       const cardExclusionsEnabled = config.cardExclusionsEnabled ?? true;
       const patternsData = await chrome.storage.sync.get('cardExclusions');
       const rawPatterns = patternsData.cardExclusions ?? DEFAULT_CARD_EXCLUSIONS;
       if (cardExclusionsEnabled && rawPatterns.length > 0) {
         const patterns = rawPatterns.map((p) => p.toLowerCase().trim()).filter((p) => p.length > 0);
-        const originalProductIds = new Set(cardSlots.map((s) => s.productId));
-        const excludedProducts = new Set();
-        for (const [pid, pName] of Object.entries(productNames)) {
-          const id = typeof pid === 'string' ? parseInt(pid, 10) : pid;
-          // Never exclude the user's original cart items
-          if (originalProductIds.has(id)) continue;
-          const lower = pName.toLowerCase();
-          if (patterns.some((pat) => lower.includes(pat))) {
-            excludedProducts.add(id);
-          }
-        }
-        if (excludedProducts.size > 0) {
-          const before = filteredListings.length;
-          filteredListings = filteredListings.filter((l) => !excludedProducts.has(l.productId));
+        const before = filteredListings.length;
+        const exclusionResult = applyCardExclusions({
+          listings: filteredListings,
+          cardSlots,
+          productNames,
+          patterns,
+        });
+        filteredListings = exclusionResult.listings;
+        exclusionWarningProductIds = exclusionResult.exclusionWarningProductIds;
+        if (before !== filteredListings.length || exclusionWarningProductIds.size > 0) {
           console.log(
-            `[TCGmizer SW] Card exclusion filter: ${before} → ${filteredListings.length} listings (excluded ${excludedProducts.size} products)`,
+            `[TCGmizer SW] Card exclusion filter: ${before} → ${filteredListings.length} listings` +
+              (exclusionWarningProductIds.size > 0
+                ? ` (${exclusionWarningProductIds.size} product(s) kept with warning — no non-excluded alternative)`
+                : ''),
           );
         }
       }
@@ -584,7 +601,17 @@ async function runSolvePhase(tabId, config) {
 
     if (config.minimizeVendors) {
       // Multi-solve mode: find optimal, then try fewer vendors
-      await runMultiSolve(tabId, cardSlots, solveSellers, solveListings, currentCartTotal, config, fallbackMap);
+      await runMultiSolve(
+        tabId,
+        cardSlots,
+        solveSellers,
+        solveListings,
+        currentCartTotal,
+        config,
+        fallbackMap,
+        exclusionWarningProductIds,
+        productNames,
+      );
     } else {
       // Single solve — optimize for price first, then minimize vendors at that price
       const result = await solveSingle(
@@ -619,6 +646,8 @@ async function runSolvePhase(tabId, config) {
         }
 
         bestResult.fallbackListings = fallbackMap;
+        annotateExclusionWarnings(bestResult, exclusionWarningProductIds);
+        fixChangedPrintingNames(bestResult, productNames);
         sendToTab(tabId, { type: MSG.OPTIMIZATION_RESULT, result: bestResult });
       } else {
         // solveSingle returns null on infeasible or error; if silent=false it already sent an error,
@@ -836,7 +865,17 @@ async function solveSingleAttempt(
 /**
  * Multi-solve: find the cheapest price for every feasible vendor count.
  */
-async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, currentCartTotal, config, fallbackMap) {
+async function runMultiSolve(
+  tabId,
+  cardSlots,
+  sellers,
+  filteredListings,
+  currentCartTotal,
+  config,
+  fallbackMap,
+  exclusionWarningProductIds,
+  productNames,
+) {
   const results = [];
 
   // First: solve with no vendor limit (or user's max if set) to get baseline
@@ -908,9 +947,11 @@ async function runMultiSolve(tabId, cardSlots, sellers, filteredListings, curren
     console.log(`[TCGmizer SW] Removed ${beforeCount - results.length} dominated result(s) (same price, more vendors)`);
   }
 
-  // Attach fallback listings to each result
+  // Attach fallback listings, exclusion warnings, and fix printing names on each result
   for (const r of results) {
     r.fallbackListings = fallbackMap;
+    annotateExclusionWarnings(r, exclusionWarningProductIds);
+    fixChangedPrintingNames(r, productNames);
   }
 
   console.log(`[TCGmizer SW] Multi-solve complete: ${results.length} options`);

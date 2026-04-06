@@ -179,14 +179,14 @@
       </div>
       <div class="tcgmizer-seller-items">${r}</div>
     </div>
-  `}function se(e){let t=[],n=new Map;for(let r of e){let a=`${r.productId}|${r.condition}|${r.language}|${r.price}|${r.productConditionId}`;n.has(a)?t[n.get(a)].qty+=1:(n.set(a,t.length),t.push({item:r,qty:1}))}return t}function ce(e,t){return e.map(({item:n,qty:r})=>{let a=t&&n.printingChanged?` <span class="tcgmizer-changed" title="Different printing (originally ${z(q(n.originalSetName)||"unknown set")})">\u{1F500}</span>`:"",d=r>1?`<span class="tcgmizer-item-qty">${r}\xD7</span> `:"",m=[ie(n.condition),q(n.setName),n.language].filter(Boolean).join(" \xB7 "),o=`https://tcgplayer-cdn.tcgplayer.com/product/${n.productId}_200w.jpg`,s=r>1?`$${n.price.toFixed(2)} ea`:`$${n.price.toFixed(2)}`;return`
+  `}function se(e){let t=[],n=new Map;for(let r of e){let a=`${r.productId}|${r.condition}|${r.language}|${r.price}|${r.productConditionId}`;n.has(a)?t[n.get(a)].qty+=1:(n.set(a,t.length),t.push({item:r,qty:1}))}return t}function ce(e,t){return e.map(({item:n,qty:r})=>{let a=t&&n.printingChanged?` <span class="tcgmizer-changed" title="Different printing (originally ${z(q(n.originalSetName)||"unknown set")})">\u{1F500}</span>`:"",d=n.exclusionWarning?' <span class="tcgmizer-exclusion-warning" title="No non-excluded version available \u2014 kept original">\u26A0\uFE0F</span>':"",m=r>1?`<span class="tcgmizer-item-qty">${r}\xD7</span> `:"",o=[ie(n.condition),q(n.setName),n.language].filter(Boolean).join(" \xB7 "),s=`https://tcgplayer-cdn.tcgplayer.com/product/${n.productId}_200w.jpg`,i=r>1?`$${n.price.toFixed(2)} ea`:`$${n.price.toFixed(2)}`;return`
       <div class="tcgmizer-item">
-        <img class="tcgmizer-item-img" src="${o}" alt="${z(n.cardName)}" loading="lazy" />
+        <img class="tcgmizer-item-img" src="${s}" alt="${z(n.cardName)}" loading="lazy" />
         <div class="tcgmizer-item-info">
-          <span class="tcgmizer-item-name">${d}${z(n.cardName)}${a}</span>
-          <span class="tcgmizer-item-details">${z(m)}</span>
+          <span class="tcgmizer-item-name">${m}${z(n.cardName)}${a}${d}</span>
+          <span class="tcgmizer-item-details">${z(o)}</span>
         </div>
-        <span class="tcgmizer-item-price">${s}</span>
+        <span class="tcgmizer-item-price">${i}</span>
       </div>
     `}).join("")}function q(e){if(!e)return"";let t=e.split(",").map(d=>d.trim());if(t.length<=1)return e;let n=["Magic: The Gathering","Pokemon","Yu-Gi-Oh","Yu-Gi-Oh!","Flesh and Blood","Lorcana","One Piece Card Game","Dragon Ball Super Card Game","Digimon Card Game","MetaZoo","Final Fantasy","Cardfight!! Vanguard","Weiss Schwarz","Star Wars: Unlimited"],r=new Set(n.map(d=>d.toLowerCase()));return t.filter(d=>!(r.has(d.toLowerCase())||/^[A-Z]$/.test(d)||/^\d+$/.test(d))).join(", ")||t[0]}function oe(e){let t="tcgmizer-card-exclusion-modal";if(e.querySelector(`#${t}`))return;let n=document.createElement("div");n.id=t,n.style.cssText=`
     position: absolute; inset: 0; z-index: 10001;

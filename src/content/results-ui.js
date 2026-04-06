@@ -814,6 +814,9 @@ function renderGroupedItems(groups, showChanged) {
         showChanged && item.printingChanged
           ? ` <span class="tcgmizer-changed" title="Different printing (originally ${escapeHtml(cleanSetName(item.originalSetName) || 'unknown set')})">🔀</span>`
           : '';
+      const exclusionWarn = item.exclusionWarning
+        ? ` <span class="tcgmizer-exclusion-warning" title="No non-excluded version available — kept original">⚠️</span>`
+        : '';
       const qtyBadge = qty > 1 ? `<span class="tcgmizer-item-qty">${qty}×</span> ` : '';
       const details = [abbreviateCondition(item.condition), cleanSetName(item.setName), item.language]
         .filter(Boolean)
@@ -824,7 +827,7 @@ function renderGroupedItems(groups, showChanged) {
       <div class="tcgmizer-item">
         <img class="tcgmizer-item-img" src="${imgUrl}" alt="${escapeHtml(item.cardName)}" loading="lazy" />
         <div class="tcgmizer-item-info">
-          <span class="tcgmizer-item-name">${qtyBadge}${escapeHtml(item.cardName)}${changed}</span>
+          <span class="tcgmizer-item-name">${qtyBadge}${escapeHtml(item.cardName)}${changed}${exclusionWarn}</span>
           <span class="tcgmizer-item-details">${escapeHtml(details)}</span>
         </div>
         <span class="tcgmizer-item-price">${priceText}</span>

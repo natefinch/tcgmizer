@@ -32,7 +32,7 @@ build-debug: node_modules $(shell find src -name '*.js' -o -name '*.css' -o -nam
 test: node_modules build ## Run all unit tests
 	@echo "Running unit tests..."
 	@failed=0; \
-	for f in test/test-ilp.js test/test-direct-remap.js test/test-maxsellers.js test/test-alt-printings-unit.js; do \
+	for f in test/test-ilp.js test/test-direct-remap.js test/test-maxsellers.js test/test-alt-printings-unit.js test/test-exclusion-filter.js; do \
 		echo ""; \
 		echo "━━━ $$f ━━━"; \
 		node "$$f" || failed=1; \
