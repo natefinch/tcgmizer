@@ -1,4 +1,4 @@
-.PHONY: help deps build watch test clean rebuild-wasm format
+.PHONY: help deps build build-chrome build-firefox build-debug watch test clean format rebuild-wasm
 
 # Default target: show help
 help: ## Show this help message
@@ -19,12 +19,18 @@ deps: node_modules ## Install/update npm dependencies
 
 # ── Build ─────────────────────────────────────────────────────
 
-dist/background.js dist/content.js &: node_modules $(shell find src -name '*.js' -o -name '*.css' -o -name '*.html') build.js
+dist/chrome/background.js dist/firefox/background.js &: node_modules $(shell find src -name '*.js' -o -name '*.css' -o -name '*.html') build.js manifests/*.json
 	node build.js
 
-build: dist/background.js dist/content.js ## Build the extension (esbuild)
+build: dist/chrome/background.js dist/firefox/background.js ## Build for Chrome and Firefox
 
-build-debug: node_modules $(shell find src -name '*.js' -o -name '*.css' -o -name '*.html') build.js ## Build with debug features enabled
+build-chrome: node_modules ## Build Chrome extension only
+	node build.js chrome
+
+build-firefox: node_modules ## Build Firefox add-on only
+	node build.js firefox
+
+build-debug: node_modules ## Build with debug features enabled
 	node build.js --debug
 
 # ── Test ──────────────────────────────────────────────────────
@@ -62,6 +68,5 @@ rebuild-wasm: ## Rebuild HiGHS WASM solver (requires Docker)
 
 # ── Clean ─────────────────────────────────────────────────────
 
-clean: ## Remove build artifacts (keeps dist/highs.*)
-	rm -f dist/background.js dist/background.js.map
-	rm -f dist/content.js dist/content.js.map
+clean: ## Remove build artifacts
+	rm -rf dist/chrome dist/firefox

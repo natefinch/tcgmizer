@@ -50,16 +50,15 @@ TCGmizer uses HiGHS to solve an **Integer Linear Program (ILP)** — specificall
 
 ### Build Process
 
-The build script (`build.js`) copies the HiGHS runtime files from `node_modules` into the extension's `dist/` directory:
+The build script (`build.js`) copies the HiGHS runtime files from `node_modules` into each browser's dist directory (`dist/chrome/` and `dist/firefox/`):
 
 ```javascript
-// Copy HiGHS WASM and JS files to dist
-const highsDir = resolve(__dirname, 'node_modules/highs/build');
-cpSync(resolve(highsDir, 'highs.wasm'), resolve(__dirname, 'dist/highs.wasm'));
-cpSync(resolve(highsDir, 'highs.js'), resolve(__dirname, 'dist/highs.js'));
+// Copy HiGHS WASM and JS into dist/<browser>/
+cpSync(wasmSrc, join(dist, 'highs.wasm'));
+cpSync(jsSrc, join(dist, 'highs.js'));
 ```
 
-This produces two files in `dist/`:
+This produces two files in each browser's dist:
 - **`highs.js`** — Emscripten-generated JavaScript module loader (~300KB). Exports a factory function (`Module`) that initializes the WASM solver.
 - **`highs.wasm`** — The compiled HiGHS solver binary (~1.5MB).
 
@@ -74,7 +73,7 @@ The WASM file must be declared as a web-accessible resource and the CSP must all
   },
   "web_accessible_resources": [
     {
-      "resources": ["dist/highs.wasm"],
+      "resources": ["highs.wasm"],
       "matches": ["<all_urls>"]
     }
   ]
@@ -86,7 +85,7 @@ The WASM file must be declared as a web-accessible resource and the CSP must all
 
 ---
 
-## Loading HiGHS in a Chrome Extension
+## Loading HiGHS in a Browser Extension
 
 ### Service Worker Approach (Current)
 
@@ -96,7 +95,7 @@ The service worker loads HiGHS using `importScripts()`, which is only available 
 // esbuild config
 await esbuild.build({
   entryPoints: ['src/background/service-worker.js'],
-  outfile: 'dist/background.js',
+  outfile: 'dist/<browser>/background.js',
   format: 'iife',  // Required for importScripts() support
 });
 ```
@@ -121,7 +120,7 @@ async function getHighs() {
   if (highsLoading) return highsLoading;
 
   highsLoading = (async () => {
-    const wasmUrl = chrome.runtime.getURL('dist/highs.wasm');
+    const wasmUrl = chrome.runtime.getURL('highs.wasm');
 
     // globalThis.Module is set by highs.js when loaded via importScripts
     const factory = globalThis.Module;
@@ -148,7 +147,7 @@ async function getHighs() {
 **Key details:**
 
 1. `importScripts('highs.js')` must use a **static string literal** — Manifest V3 requires statically analyzable `importScripts` calls in service workers.
-2. The path `'highs.js'` is relative to the service worker location (`dist/background.js`), so it resolves to `dist/highs.js`.
+2. The path `'highs.js'` is relative to the service worker location (`background.js`), and since `highs.js` is in the same directory, it resolves correctly.
 3. `highs.js` sets `globalThis.Module` to a factory function. This factory is called with a config object containing `locateFile` to tell Emscripten where to find the WASM binary.
 4. The `locateFile` callback uses `chrome.runtime.getURL()` to get the full `chrome-extension://` URL for the WASM file.
 5. Initialization is lazy — it doesn't happen until the first solve request.

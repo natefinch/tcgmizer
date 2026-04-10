@@ -1,6 +1,6 @@
 # TCGmizer
 
-A Chrome extension that optimizes your [TCGPlayer](https://www.tcgplayer.com) shopping cart to find the mathematically cheapest combination of sellers, including shipping costs.
+A browser extension for Chrome and Firefox that optimizes your [TCGPlayer](https://www.tcgplayer.com) shopping cart to find the mathematically cheapest combination of sellers, including shipping costs.
 
 ## The Problem
 
@@ -40,19 +40,29 @@ TCGmizer uses [integer linear programming](https://en.wikipedia.org/wiki/Integer
    npm install
    npm run build
    ```
+
+### Chrome
 3. Open Chrome and go to `chrome://extensions`.
 4. Enable **Developer mode** (toggle in the top right).
-5. Click **Load unpacked** and select the repository folder.
+5. Click **Load unpacked** and select the `dist/chrome` folder.
 6. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
+
+### Firefox
+3. Build and sign the Firefox add-on: `npm run sign:firefox`
+4. Open Firefox → `about:addons`
+5. Click the gear icon (⚙) → **Install Add-on From File…**
+6. Select the generated `.xpi` file from the project root.
 
 ## Building
 
 ```
-npm run build        # One-time build
-npm run watch        # Rebuild on changes
+npm run build           # Build for both Chrome and Firefox
+npm run build:chrome    # Build Chrome only
+npm run build:firefox   # Build Firefox only
+npm run watch           # Rebuild on changes (both browsers)
 ```
 
 ## Requirements
 
-- Google Chrome (Manifest V3)
+- Google Chrome or Mozilla Firefox (Manifest V3)
 - A TCGPlayer cart with items in it

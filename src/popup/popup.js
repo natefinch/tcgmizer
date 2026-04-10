@@ -64,11 +64,11 @@ document.addEventListener('DOMContentLoaded', () => {
           try {
             await chrome.scripting.insertCSS({
               target: { tabId: tab.id },
-              files: ['src/content/results-ui.css'],
+              files: ['results-ui.css'],
             });
             await chrome.scripting.executeScript({
               target: { tabId: tab.id },
-              files: ['dist/content.js'],
+              files: ['content.js'],
             });
             // Give the content script a moment to initialize
             await new Promise((r) => setTimeout(r, 200));

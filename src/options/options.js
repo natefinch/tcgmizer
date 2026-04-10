@@ -61,13 +61,16 @@ function renderBanList() {
   for (const seller of bannedSellers) {
     const item = document.createElement('div');
     item.className = 'ban-list-item';
-    item.innerHTML = `
+    setHTML(
+      item,
+      `
       <div class="ban-list-info">
         <span class="ban-list-name">${escapeHtml(seller.sellerName)}</span>
         <input type="text" class="ban-list-comment" placeholder="Add a note..." value="${escapeHtml(seller.comment || '')}" />
       </div>
       <button class="options-btn options-btn-danger" data-key="${escapeHtml(seller.sellerKey)}">Remove</button>
-    `;
+    `,
+    );
     item.querySelector('button').addEventListener('click', () => removeSeller(seller.sellerKey));
     const commentInput = item.querySelector('.ban-list-comment');
     let debounceTimer;
@@ -161,7 +164,7 @@ function renderSearchResults(sellers) {
   const resultsEl = document.getElementById('search-results');
   const emptyEl = document.getElementById('search-empty');
 
-  resultsEl.innerHTML = '';
+  resultsEl.textContent = '';
 
   if (!sellers || sellers.length === 0) {
     resultsEl.style.display = 'none';
@@ -181,19 +184,25 @@ function renderSearchResults(sellers) {
     item.className = 'search-result-item';
 
     if (isBanned) {
-      item.innerHTML = `
+      setHTML(
+        item,
+        `
         <div>
           <div class="search-result-name">${escapeHtml(sellerName)}</div>
         </div>
         <span class="search-result-already">Already banned</span>
-      `;
+      `,
+      );
     } else {
-      item.innerHTML = `
+      setHTML(
+        item,
+        `
         <div>
           <div class="search-result-name">${escapeHtml(sellerName)}</div>
         </div>
         <button class="options-btn options-btn-sm options-btn-primary">Ban</button>
-      `;
+      `,
+      );
       item.querySelector('button').addEventListener('click', () => addSeller(sellerKey, sellerName));
     }
 
@@ -232,10 +241,13 @@ function renderCardExclusions() {
     const pattern = cardExclusions[i];
     const item = document.createElement('div');
     item.className = 'card-exclusion-item';
-    item.innerHTML = `
+    setHTML(
+      item,
+      `
       <span class="ban-list-name">${escapeHtml(pattern)}</span>
       <button class="options-btn options-btn-danger" data-idx="${i}">Remove</button>
-    `;
+    `,
+    );
     item.querySelector('button').addEventListener('click', () => removeCardExclusion(i));
     listEl.appendChild(item);
   }
@@ -263,7 +275,19 @@ async function addCardExclusion() {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Replace element children with parsed HTML without using innerHTML assignment.
+function setHTML(el, html) {
+  el.textContent = '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  while (doc.body.firstChild) {
+    el.appendChild(doc.body.firstChild);
+  }
 }

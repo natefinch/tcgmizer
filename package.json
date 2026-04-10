@@ -4,6 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "node build.js",
+    "build:chrome": "node build.js chrome",
+    "build:firefox": "node build.js firefox",
+    "upload:chrome": "node build.js chrome && chrome-webstore-upload upload --source dist/chrome/ --extension-id $CHROME_EXTENSION_ID",
+    "sign:firefox": "node build.js firefox && web-ext sign --source-dir=dist/firefox/ --artifacts-dir=web-ext-artifacts/ --channel=unlisted --api-key=\"$AMO_JWT_ISSUER\" --api-secret=\"$AMO_JWT_SECRET\"",
     "watch": "node build.js --watch",
     "format": "prettier --write 'src/**/*.{js,css,html}' 'test/**/*.js'",
     "test": "node --experimental-vm-modules node_modules/.bin/jest || node test/test-ilp.js"
@@ -21,7 +25,9 @@
     "highs": "^1.8.0"
   },
   "devDependencies": {
+    "chrome-webstore-upload-cli": "^3.5.0",
     "esbuild": "^0.27.4",
-    "prettier": "^3.8.1"
+    "prettier": "^3.8.1",
+    "web-ext": "^10.1.0"
   }
 }

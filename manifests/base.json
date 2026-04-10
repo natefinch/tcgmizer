@@ -19,7 +19,7 @@
     "https://tcgplayer.com/*"
   ],
   "background": {
-    "service_worker": "dist/background.js"
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
@@ -28,17 +28,17 @@
         "https://tcgplayer.com/cart*"
       ],
       "js": [
-        "dist/content.js"
+        "content.js"
       ],
       "css": [
-        "src/content/results-ui.css"
+        "results-ui.css"
       ],
       "run_at": "document_idle"
     }
   ],
-  "options_page": "src/options/options.html",
+  "options_page": "options/options.html",
   "action": {
-    "default_popup": "src/popup/popup.html",
+    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/tcgm-16.png",
       "32": "icons/tcgm-32.png",
@@ -55,7 +55,7 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "dist/highs.wasm"
+        "highs.wasm"
       ],
       "matches": [
         "<all_urls>"

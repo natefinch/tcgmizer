@@ -105,6 +105,11 @@ export async function fetchAllListings(cards, options = {}) {
   const uniqueProducts = Array.from(productGroups.values());
   let completedCount = 0;
 
+  console.log(
+    `[TCGmizer] Fetching listings for ${uniqueProducts.length} unique products (${cards.length} total cards), concurrency=${concurrency}`,
+  );
+  const listingsStartTime = Date.now();
+
   /**
    * Fetch listings for one product and collect results.
    */
@@ -189,9 +194,16 @@ export async function fetchAllListings(cards, options = {}) {
   }
 
   // --- Seller cache: prune expired entries, apply cached info, fetch only uncached ---
+  console.log(
+    `[TCGmizer] Listing fetch complete: ${allListings.length} listings from ${Object.keys(sellersMap).length} sellers in ${Date.now() - listingsStartTime}ms`,
+  );
+
   const sellerCache = await pruneExpiredEntries();
   const allSellerKeys = Object.keys(sellersMap);
   const { cached: cachedSellers, uncachedKeys } = getCachedSellers(allSellerKeys, sellerCache);
+  console.log(
+    `[TCGmizer] Seller cache: ${Object.keys(cachedSellers).length} cached, ${uncachedKeys.length} uncached out of ${allSellerKeys.length} total`,
+  );
 
   // Apply cached shipping info
   const knownSellerKeys = new Set();
@@ -221,7 +233,12 @@ export async function fetchAllListings(cards, options = {}) {
     }
 
     try {
+      console.log(`[TCGmizer] Fetching shipping info for ${uncachedKeys.length} uncached seller(s)...`);
+      const shippingStartTime = Date.now();
       const respondedKeys = await fetchSellerShippingInfo(uncachedSellersMap, onShippingProgress);
+      console.log(
+        `[TCGmizer] Shipping info fetch complete: ${respondedKeys.size} responded out of ${uncachedKeys.length} in ${Date.now() - shippingStartTime}ms`,
+      );
       for (const key of respondedKeys) {
         knownSellerKeys.add(key);
         // Copy updated shipping info back into the main sellersMap
@@ -377,7 +394,10 @@ async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}
   const sellerEntries = Object.values(sellersMap).filter((s) => s.sellerNumericId);
   const respondedSellerKeys = new Set();
 
-  if (sellerEntries.length === 0) return respondedSellerKeys;
+  if (sellerEntries.length === 0) {
+    console.log('[TCGmizer] No sellers with numeric IDs to fetch shipping for');
+    return respondedSellerKeys;
+  }
 
   // Build the request body: [{sellerId, largestShippingCategoryId: 1}]
   // Category 1 = singles (cards), which is what TCG cart optimization focuses on
@@ -389,13 +409,18 @@ async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}
   // Batch in groups of 50 to avoid too-large requests
   const BATCH_SIZE = 50;
   const totalBatches = Math.ceil(body.length / BATCH_SIZE);
+  console.log(
+    `[TCGmizer] Shipping info: ${sellerEntries.length} sellers in ${totalBatches} batch(es) of up to ${BATCH_SIZE}`,
+  );
   let batchIndex = 0;
   for (let i = 0; i < body.length; i += BATCH_SIZE) {
     batchIndex++;
     onShippingProgress({ current: batchIndex, total: totalBatches });
     const batch = body.slice(i, i + BATCH_SIZE);
+    console.log(`[TCGmizer] Shipping batch ${batchIndex}/${totalBatches}: fetching ${batch.length} sellers...`);
 
     try {
+      const batchStartTime = Date.now();
       const response = await fetch(`${ROOT_API_BASE}/v2/seller/shippinginfo?countryCode=US`, {
         method: 'POST',
         headers: {
@@ -406,12 +431,18 @@ async function fetchSellerShippingInfo(sellersMap, onShippingProgress = () => {}
       });
 
       if (!response.ok) {
-        console.warn(`[TCGmizer] Shipping info API returned ${response.status}`);
+        console.warn(
+          `[TCGmizer] Shipping batch ${batchIndex}/${totalBatches}: API returned ${response.status} in ${Date.now() - batchStartTime}ms`,
+        );
         continue;
       }
 
       const data = await response.json();
       const results = data?.results?.[0] || data?.results || [];
+      const resultCount = Array.isArray(results) ? results.length : 0;
+      console.log(
+        `[TCGmizer] Shipping batch ${batchIndex}/${totalBatches}: got ${resultCount} result(s) in ${Date.now() - batchStartTime}ms`,
+      );
 
       for (const sellerShipping of Array.isArray(results) ? results : []) {
         const key = sellerShipping.sellerKey;

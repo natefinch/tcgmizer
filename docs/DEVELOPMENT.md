@@ -1,6 +1,6 @@
 # TCGmizer — Development Guide
 
-How to build, modify, and maintain the TCGmizer Chrome extension.
+How to build, modify, and maintain the TCGmizer browser extension.
 
 ---
 
@@ -8,7 +8,7 @@ How to build, modify, and maintain the TCGmizer Chrome extension.
 
 - **Node.js** (v18+)
 - **Docker** (only needed for rebuilding the WASM solver)
-- **Google Chrome** (for testing the extension)
+- **Google Chrome** and/or **Mozilla Firefox** (for testing the extension)
 
 ---
 
@@ -24,11 +24,20 @@ This installs dependencies (if needed) and builds the extension. To see all avai
 make
 ```
 
-Then load the extension in Chrome:
+Then load the extension:
+
+**Chrome:**
 1. Go to `chrome://extensions`
 2. Enable **Developer mode**
-3. Click **Load unpacked** and select the repository root
-4. Navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon
+3. Click **Load unpacked** and select the `dist/chrome` directory
+
+**Firefox:**
+1. Build and sign the add-on: `npm run sign:firefox`
+2. Open Firefox → `about:addons`
+3. Click the gear icon (⚙) → **Install Add-on From File…**
+4. Select the generated `.xpi` file from the project root
+
+Then navigate to your [TCGPlayer cart](https://www.tcgplayer.com/cart) and click the TCGmizer icon.
 
 ---
 
@@ -36,26 +45,32 @@ Then load the extension in Chrome:
 
 ### Extension Build (`node build.js`)
 
-Uses [esbuild](https://esbuild.github.io/) to produce two IIFE bundles:
+Uses [esbuild](https://esbuild.github.io/) to produce two IIFE bundles per browser (Chrome and Firefox):
 
 | Entry | Output | Notes |
 |---|---|---|
-| `src/background/service-worker.js` | `dist/background.js` | Must be IIFE for `importScripts()` |
-| `src/content/content.js` | `dist/content.js` | Must be IIFE (Chrome content script requirement) |
+| `src/background/service-worker.js` | `dist/<browser>/background.js` | Must be IIFE for `importScripts()` |
+| `src/content/content.js` | `dist/<browser>/content.js` | Must be IIFE (content script requirement) |
 
-The build also copies `highs.js` and `highs.wasm` from `node_modules/highs/build/` into `dist/` as a fallback — but the **custom-built** versions already checked into `dist/` should take priority (see [WASM Solver Build](#wasm-solver-build) below).
+The build also copies all non-bundled files (popup, options, CSS, icons) and HiGHS WASM/JS into each browser's dist directory. Manifests are merged from `manifests/base.json` + `manifests/<browser>.json`.
 
 ### Commands
 
 ```bash
-make build           # One-time production build (minified)
+make build           # Build for both Chrome and Firefox
+make build-chrome    # Build Chrome only
+make build-firefox   # Build Firefox only
 make watch           # Rebuild on file changes (unminified, faster iteration)
-make clean           # Remove build artifacts (keeps dist/highs.*)
+make clean           # Remove build artifacts
 ```
 
 `make build` is incremental — it only rebuilds when source files have changed.
 
-After building, reload the extension in `chrome://extensions` (click the ↻ button on the extension card) to pick up changes. The service worker restarts automatically; content scripts require a page refresh.
+After building, reload the extension to pick up changes:
+- **Chrome:** Go to `chrome://extensions` and click the ↻ button on the extension card.
+- **Firefox:** Go to `about:debugging#/runtime/this-firefox` and click **Reload**.
+
+The service worker restarts automatically; content scripts require a page refresh.
 
 ---
 
@@ -131,28 +146,40 @@ make test                        # Run unit tests
 # Then test with a large cart (50+ items) in TCGPlayer
 ```
 
-The custom `dist/highs.js` and `dist/highs.wasm` files should be committed to the repo so that `npm install && npm run build` works without Docker.
+The custom `highs.js` and `highs.wasm` files are copied from `node_modules/highs/build/` during the build. If you've rebuilt the WASM solver with a custom stack size, place the files in `node_modules/highs/build/` (or update the build script's fallback paths) so they get copied into both `dist/chrome/` and `dist/firefox/`.
 
 ---
 
 ## Project Structure
 
 ```
-├── manifest.json                 # Chrome extension manifest (MV3)
+├── manifests/                    # Browser-specific manifest configs
+│   ├── base.json                 # Shared manifest (MV3, permissions, content scripts)
+│   ├── chrome.json               # Chrome overrides (empty — base works as-is)
+│   └── firefox.json              # Firefox overrides (background.scripts, gecko settings)
 ├── Makefile                      # Development task runner (run `make` for help)
-├── build.js                      # esbuild bundler script
-├── package.json                  # Dependencies: highs, esbuild
+├── build.js                      # esbuild bundler script (builds both browsers)
+├── package.json                  # Dependencies: highs, esbuild, web-ext
 ├── scripts/
 │   └── rebuild-highs-wasm.sh     # Docker-based WASM rebuild script
-├── dist/                         # Build output (committed for highs.js/wasm)
-│   ├── background.js             # Bundled service worker
-│   ├── content.js                # Bundled content script
-│   ├── highs.js                  # Custom-built HiGHS JS loader
-│   └── highs.wasm                # Custom-built HiGHS WASM (8MB stack)
+├── dist/                         # Build output (gitignored)
+│   ├── chrome/                   # Self-contained Chrome extension
+│   │   ├── manifest.json         # Merged from base.json + chrome.json
+│   │   ├── background.js         # Bundled service worker
+│   │   ├── content.js            # Bundled content script
+│   │   ├── results-ui.css        # Content script styles
+│   │   ├── highs.js              # HiGHS JS loader
+│   │   ├── highs.wasm            # HiGHS WASM solver
+│   │   ├── icons/                # Extension icons
+│   │   ├── popup/                # Popup HTML + JS
+│   │   └── options/              # Options page HTML + JS + CSS
+│   └── firefox/                  # Self-contained Firefox add-on (same structure)
 ├── src/
 │   ├── background/
 │   │   ├── service-worker.js     # Orchestrator: fetch → solve → results
-│   │   └── fetcher.js            # TCGPlayer API client (listings, shipping, search)
+│   │   ├── fetcher.js            # TCGPlayer API client (listings, shipping, search)
+│   │   ├── seller-cache.js       # Seller data cache
+│   │   └── printings-cache.js    # Printings data cache
 │   ├── content/
 │   │   ├── content.js            # Content script entry point
 │   │   ├── cart-reader.js        # DOM parser for cart items
@@ -162,19 +189,22 @@ The custom `dist/highs.js` and `dist/highs.wasm` files should be committed to th
 │   ├── shared/
 │   │   ├── constants.js          # Config values, message types, stages
 │   │   ├── ilp-builder.js        # CPLEX LP format generator
-│   │   └── solution-parser.js    # HiGHS solution → structured result
+│   │   ├── solution-parser.js    # HiGHS solution → structured result
+│   │   ├── direct-remapper.js    # TCGPlayer Direct listing remapping
+│   │   └── exclusion-filter.js   # Card version exclusion filtering
 │   ├── popup/
 │   │   ├── popup.html            # Extension popup
 │   │   └── popup.js              # Popup logic
-│   └── offscreen/                # Legacy (not used)
-│       ├── offscreen.html
-│       └── solver.js
+│   └── options/
+│       ├── options.html          # Settings page
+│       ├── options.js            # Settings logic (ban list, exclusions)
+│       └── options.css           # Settings styles
 ├── docs/
 │   ├── technical-design.md       # Full architecture & implementation doc
 │   ├── DEVELOPMENT.md            # This file
 │   ├── highs-ilp-reference.md    # HiGHS LP format reference
 │   └── tcgplayer-api-reference.md # TCGPlayer API endpoint docs
-├── icons/                        # Extension icons
+├── icons/                        # Source icons (copied into dist/ by build)
 └── test/                         # API response snapshots & test scripts
 ```
 
@@ -239,15 +269,21 @@ These are the major performance optimizations made and why, so future developers
 
 ### Inspecting the Service Worker
 
+**Chrome:**
 1. Go to `chrome://extensions`
 2. Find TCGmizer and click **Inspect views: service worker**
-3. This opens DevTools for the service worker — you can see console logs, network requests, and errors
+
+**Firefox:**
+1. Go to `about:debugging#/runtime/this-firefox`
+2. Find TCGmizer and click **Inspect**
+
+This opens DevTools for the service worker — you can see console logs, network requests, and errors.
 
 ### Common Errors
 
 | Error | Likely Cause | Fix |
 |---|---|---|
-| `HiGHS module factory not found` | `highs.js` not in `dist/` | Run `npm run build` |
+| `HiGHS module factory not found` | `highs.js` not in dist | Run `npm run build` |
 | `Aborted()` or `signature mismatch` | WASM stack overflow | Rebuild WASM with larger stack, or reduce cart size |
 | `CAPI-4` during cart apply | Item sold out between fetch and apply | Automatic fallback handles this; re-optimize if persistent |
 | `CAPI-35` during cart apply | Ghost seller | Should be filtered out; check shipping API response |

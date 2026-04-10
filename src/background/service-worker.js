@@ -24,18 +24,23 @@ import { clearPrintingsCache } from './printings-cache.js';
 const cancelledTabs = new Set();
 
 // --- HiGHS Solver ---
-// importScripts MUST use static string paths in MV3 service workers.
-// Path is relative to the service worker file location (dist/background.js),
-// so we use just the filename since highs.js is in the same directory.
-try {
-  importScripts('highs.js');
-  console.log('[TCGmizer SW] HiGHS JS loaded via importScripts');
-} catch (e) {
-  console.error('[TCGmizer SW] Failed to load HiGHS JS:', e);
+// In Chrome service workers, use importScripts to load HiGHS.
+// In Firefox background pages, highs.js is loaded via the manifest's
+// background.scripts array, so importScripts is not needed.
+if (typeof importScripts === 'function') {
+  try {
+    importScripts('highs.js');
+    console.log('[TCGmizer SW] HiGHS JS loaded via importScripts');
+  } catch (e) {
+    console.error('[TCGmizer SW] Failed to load HiGHS JS:', e);
+  }
 }
 
-// Increase session storage quota (default 10MB may not be enough for large carts)
-chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
+// Increase session storage quota (default 10MB may not be enough for large carts).
+// setAccessLevel is Chrome-only; Firefox does not support it.
+if (typeof chrome.storage.session?.setAccessLevel === 'function') {
+  chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
+}
 
 let highs = null;
 let highsLoading = null;
@@ -46,7 +51,7 @@ async function getHighs() {
 
   highsLoading = (async () => {
     console.log('[TCGmizer SW] Initializing HiGHS WASM solver...');
-    const wasmUrl = chrome.runtime.getURL('dist/highs.wasm');
+    const wasmUrl = chrome.runtime.getURL('highs.wasm');
 
     const factory = globalThis.Module;
     if (!factory) {
@@ -273,6 +278,9 @@ async function runFetchPhase(tabId, cartData) {
       total: uniqueCardNames.length,
     });
 
+    console.log(`[TCGmizer SW] Step 2: Searching printings for ${uniqueCardNames.length} unique card name(s)...`);
+    const printingsStartTime = Date.now();
+
     const printingsResult = await searchAllCardPrintings(uniqueCardNames, seenProducts, {
       productLineName: detectedProductLineSlug,
       onProgress: ({ current, total }) => {
@@ -289,6 +297,8 @@ async function runFetchPhase(tabId, cartData) {
       console.log(`[TCGmizer SW] Fetch phase cancelled for tab ${tabId}`);
       return;
     }
+
+    console.log(`[TCGmizer SW] Step 2 complete: printings search took ${Date.now() - printingsStartTime}ms`);
 
     // Merge printings results into our maps
     const productIdToProductName = new Map();
@@ -315,6 +325,9 @@ async function runFetchPhase(tabId, cartData) {
     );
 
     // --- Step 3: Fetch listings ---
+    console.log(`[TCGmizer SW] Step 3: Fetching listings for ${productCards.length} product(s)...`);
+    const listingsStartTime = Date.now();
+
     sendProgress(tabId, STAGE.FETCHING_LISTINGS, {
       message: 'Fetching listings...',
       current: 0,
@@ -349,6 +362,10 @@ async function runFetchPhase(tabId, cartData) {
       console.log(`[TCGmizer SW] Fetch phase cancelled for tab ${tabId}`);
       return;
     }
+
+    console.log(
+      `[TCGmizer SW] Step 3 complete: fetched ${rawListings.length} listings from ${Object.keys(sellers).length} seller(s) in ${Date.now() - listingsStartTime}ms`,
+    );
 
     // Pre-index rawListings by productId for O(1) lookup instead of O(n) scan per slot
     const listingsByProduct = new Map();
@@ -1064,12 +1081,11 @@ async function loadTabCache(tabId) {
 
 // --- SPA navigation detection ---
 // TCGPlayer is an SPA, so navigating to /cart doesn't always trigger a full page
-// load (e.g. after bulk-adding cards). Listen for URL changes and inject the
-// content script when needed.
+// load (e.g. after bulk-adding cards). Listen for completed navigations and inject
+// the content script when the declarative injection didn't fire (SPA transitions).
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!changeInfo.url) return;
-  const isCart = changeInfo.url.includes('tcgplayer.com/cart');
-  if (!isCart) return;
+  if (changeInfo.status !== 'complete') return;
+  if (!tab.url || !tab.url.includes('tcgplayer.com/cart')) return;
 
   // Check if the content script is already loaded before injecting
   chrome.tabs.sendMessage(tabId, { type: 'PING' }).catch(async () => {
@@ -1078,11 +1094,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     try {
       await chrome.scripting.insertCSS({
         target: { tabId },
-        files: ['src/content/results-ui.css'],
+        files: ['results-ui.css'],
       });
       await chrome.scripting.executeScript({
         target: { tabId },
-        files: ['dist/content.js'],
+        files: ['content.js'],
       });
     } catch (err) {
       console.error(`[TCGmizer SW] Failed to inject content script into tab ${tabId}:`, err);
@@ -1173,6 +1189,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // keep message channel open for async sendResponse
 
     default:
+      if (message.type === 'OPEN_OPTIONS_PAGE') {
+        chrome.runtime.openOptionsPage();
+        sendResponse({ ok: true });
+      }
       return false;
   }
 });

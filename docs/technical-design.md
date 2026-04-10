@@ -1,6 +1,6 @@
 # TCGmizer — Technical Design & Implementation Document
 
-A detailed walkthrough of every component in the TCGmizer Chrome extension: architecture, data flow, algorithms, and implementation specifics.
+A detailed walkthrough of every component in the TCGmizer browser extension: architecture, data flow, algorithms, and implementation specifics.
 
 ---
 
@@ -35,11 +35,11 @@ A detailed walkthrough of every component in the TCGmizer Chrome extension: arch
 
 ## Architecture Overview
 
-TCGmizer is a Manifest V3 Chrome extension. It follows Chrome's standard extension architecture with four execution contexts:
+TCGmizer is a Manifest V3 browser extension that supports Chrome and Firefox. It follows the standard extension architecture with four execution contexts:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Chrome Browser                           │
+│                          Browser                                │
 │                                                                 │
 │  ┌──────────────────┐     Messages      ┌────────────────────┐  │
 │  │  Service Worker   │◄────────────────►│   Content Script    │  │
@@ -75,7 +75,9 @@ TCGmizer is a Manifest V3 Chrome extension. It follows Chrome's standard extensi
 
 ## Extension Manifest & Permissions
 
-**File:** `manifest.json`
+**Files:** `manifests/base.json`, `manifests/chrome.json`, `manifests/firefox.json`
+
+The manifest is split into a shared base and per-browser overrides. The build script merges them into a final `manifest.json` inside each browser's dist directory. Chrome's override is empty (the base works as-is). Firefox overrides the `background` key to use `scripts` array instead of `service_worker`, and adds `browser_specific_settings.gecko`.
 
 ### Permissions
 
@@ -105,11 +107,11 @@ TCGmizer is a Manifest V3 Chrome extension. It follows Chrome's standard extensi
 
 ### Content Script Declaration
 
-Declaratively injected on `https://www.tcgplayer.com/cart*` and `https://tcgplayer.com/cart*` at `document_idle`. The CSS file (`results-ui.css`) is injected alongside the bundled JS (`dist/content.js`).
+Declaratively injected on `https://www.tcgplayer.com/cart*` and `https://tcgplayer.com/cart*` at `document_idle`. The CSS file (`results-ui.css`) is injected alongside the bundled JS (`content.js`).
 
 ### Web-Accessible Resources
 
-`dist/highs.wasm` is declared web-accessible so the Emscripten WASM loader can fetch it by URL from within the service worker.
+`highs.wasm` is declared web-accessible so the Emscripten WASM loader can fetch it by URL from within the service worker.
 
 ---
 
@@ -117,22 +119,26 @@ Declaratively injected on `https://www.tcgplayer.com/cart*` and `https://tcgplay
 
 **File:** `build.js`
 
-Uses **esbuild** to bundle the extension's JavaScript. The build produces two bundles and copies the HiGHS runtime:
+Uses **esbuild** to bundle the extension's JavaScript for both Chrome and Firefox. The build produces two bundles per browser and copies all runtime files:
 
 ### Entry Points
 
 | Entry | Output | Format | Purpose |
 |---|---|---|---|
-| `src/background/service-worker.js` | `dist/background.js` | IIFE | Service worker (must be IIFE for `importScripts()` support) |
-| `src/content/content.js` | `dist/content.js` | IIFE | Content script (must be IIFE per Chrome's content script requirements) |
+| `src/background/service-worker.js` | `dist/<browser>/background.js` | IIFE | Service worker (must be IIFE for `importScripts()` support) |
+| `src/content/content.js` | `dist/<browser>/content.js` | IIFE | Content script (must be IIFE per content script requirements) |
 
 Both bundles use ES2022 target, include source maps, and are minified in production (non-watch) builds.
 
+### Manifest Merging
+
+The build merges `manifests/base.json` with `manifests/<browser>.json` using a shallow object spread (`{ ...base, ...override }`). This allows Firefox to override the `background` key (switching from `service_worker` to `scripts` array) and add `browser_specific_settings`.
+
 ### HiGHS File Copying
 
-After bundling, the build copies `highs.wasm` and `highs.js` from `node_modules/highs/build/` into `dist/`. It includes a fallback that uses `find` to locate these files if the expected path doesn't exist.
+After bundling, the build copies `highs.wasm` and `highs.js` from `node_modules/highs/build/` into each browser's dist directory.
 
-> **Note:** The `dist/highs.js` and `dist/highs.wasm` files checked into the repo are **custom-built** with an 8MB Emscripten stack. They are NOT the files from the `highs` npm package (which ships with a 64KB stack that crashes on large carts). The `build.js` copy step is a fallback for fresh installs; the custom-built files should be committed and take priority. See the [WASM Solver Build](#wasm-solver-build) section below and `scripts/rebuild-highs-wasm.sh` for details.
+> **Note:** The published `highs` npm package (v1.8.0) was compiled with Emscripten's default 64KB stack, which crashes on large carts. If you need a custom-built version with a larger stack (see [WASM Solver Build](#wasm-solver-build)), place the rebuilt files in `node_modules/highs/build/` so the build script picks them up.
 
 ### WASM Solver Build
 
@@ -175,7 +181,7 @@ The service worker is the central orchestrator. It coordinates the entire optimi
 HiGHS is loaded in two steps:
 
 1. **Synchronous:** `importScripts('highs.js')` at the top level loads the Emscripten JS loader. This must be a static string literal per MV3 requirements. It sets `globalThis.Module` to a factory function.
-2. **Async/lazy:** `getHighs()` initializes the WASM module on first use. It calls the factory with a `locateFile` callback that maps `*.wasm` filenames to `chrome.runtime.getURL('dist/highs.wasm')`. The resulting solver instance is cached in the `highs` variable, and concurrent callers share the same `highsLoading` promise.
+2. **Async/lazy:** `getHighs()` initializes the WASM module on first use. It calls the factory with a `locateFile` callback that maps `*.wasm` filenames to `chrome.runtime.getURL('highs.wasm')`. The resulting solver instance is cached in the `highs` variable, and concurrent callers share the same `highsLoading` promise.
 
 **WASM crash recovery:** If HiGHS WASM aborts (stack overflow, memory error), the cached `highs` and `highsLoading` references are set to `null`, forcing a full re-initialization on the next solve attempt. This is necessary because the Emscripten module is left in a corrupted state after a WASM trap.
 
